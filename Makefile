@@ -37,7 +37,7 @@ PROVIDER_COMPOSE_CMD = $(COMPOSE) -f $(PROVIDER_COMPOSE_FILE) --project-director
 -include $(ENV_FILE)
 -include $(PROVIDER_ENV_FILE)
 
-.PHONY: help install setup build test lint fmt fmt-check clean ci dev docker-build docker-run docker-stop docker-logs docker-ps docker-clean docker-dev docker-dev-build docker-dev-down docker-prod-build docker-prod-run compose-check health proxy-link
+.PHONY: help install setup build test lint fmt fmt-check clean ci dev docker-build docker-run docker-stop docker-logs docker-ps docker-clean docker-dev docker-dev-build docker-dev-down docker-prod-build docker-prod-run compose-check health proxy-link uninstall update
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z0-9_.-]+:.*?## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2} /^##@/ {printf "\n\033[1m%s\033[0m\n", substr($$0, 5)}' $(MAKEFILE_LIST)
@@ -58,6 +58,8 @@ build: compose-check ## Validate root and provider Docker Compose manifests
 
 test: compose-check ## Run shell and configuration smoke checks
 	bash -n install.sh
+	bash -n uninstall.sh
+	bash -n update.sh
 	test -f .env.example
 	test -f "$(PROVIDER_DIR)/.env.example"
 	test -f "$(PROVIDER_DIR)/telemt.toml.example"
@@ -65,15 +67,15 @@ test: compose-check ## Run shell and configuration smoke checks
 
 lint: ## Run shell linting for installer scripts
 	command -v "$(SHELLCHECK)" >/dev/null 2>&1 || { printf 'shellcheck is required for lint\n' >&2; exit 1; }
-	"$(SHELLCHECK)" install.sh
+	"$(SHELLCHECK)" install.sh uninstall.sh update.sh
 
 fmt: ## Format shell sources in place
 	command -v "$(SHFMT)" >/dev/null 2>&1 || { printf 'shfmt is required for fmt\n' >&2; exit 1; }
-	"$(SHFMT)" -w install.sh
+	"$(SHFMT)" -w install.sh uninstall.sh update.sh
 
 fmt-check: ## Check shell formatting without rewriting files
 	command -v "$(SHFMT)" >/dev/null 2>&1 || { printf 'shfmt is required for fmt-check\n' >&2; exit 1; }
-	"$(SHFMT)" -d install.sh
+	"$(SHFMT)" -d install.sh uninstall.sh update.sh
 
 ci: fmt-check lint test build ## Run the local CI verification pipeline
 
@@ -126,3 +128,10 @@ docker-prod-build: ## Pull the production image declared in Compose
 
 docker-prod-run: setup ## Start the production-style stack from the root compose file
 	$(ROOT_COMPOSE_CMD) up -d
+
+##@ Remote Operations
+uninstall: ## Show uninstall command
+	@printf 'curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/uninstall.sh | sudo bash\n'
+
+update: ## Show update command
+	@printf 'curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/update.sh | sudo bash\n'

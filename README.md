@@ -2,7 +2,10 @@
 
 > Bash-first installer для Telegram MTProto proxy deployments, где `telemt` сейчас является основным default path.
 
-`mtproxy-installer` помогает быстро поднять Telemt-based MTProto proxy через Docker Compose и не терять operational context: стратегию по providers, выбор upstream-репозиториев, reverse-proxy topology и практические troubleshooting notes. Текущий основной путь - `providers/telemt`, а `mtg` и официальный MTProxy пока остаются запланированными вариантами.
+`mtproxy-installer` помогает быстро поднять Telemt-based MTProto proxy через Docker Compose и не терять operational
+context: стратегию по providers, выбор upstream-репозиториев, reverse-proxy topology и практические troubleshooting
+notes. Текущий основной путь - `providers/telemt`, а `mtg` и официальный MTProxy пока остаются запланированными
+вариантами.
 
 ## Быстрый старт
 
@@ -30,15 +33,15 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/inst
 
 ## Документация
 
-| Раздел | Описание |
-|--------|----------|
-| [Getting Started](docs/getting-started.md) | Установка, ручной запуск и первая проверка |
-| [Configuration](docs/configuration.md) | Переменные окружения и ключевые параметры `telemt.toml` |
-| [Providers](docs/providers.md) | Стратегия по провайдерам и границы текущего default path |
-| [Upstream Repositories](docs/upstream-repositories.md) | Карта внешних репозиториев и их роль |
-| [Installation Strategy](docs/installation-strategy.md) | План эволюции installer-а и будущего selector-а |
-| [Reverse Proxy](docs/reverse-proxy.md) | Схемы с `nginx stream` и Traefik TCP |
-| [Troubleshooting](docs/troubleshooting.md) | Практические проблемы и рабочие обходы |
+| Раздел                                                 | Описание                                                 |
+|--------------------------------------------------------|----------------------------------------------------------|
+| [Getting Started](docs/getting-started.md)             | Установка, ручной запуск и первая проверка               |
+| [Configuration](docs/configuration.md)                 | Переменные окружения и ключевые параметры `telemt.toml`  |
+| [Providers](docs/providers.md)                         | Стратегия по провайдерам и границы текущего default path |
+| [Upstream Repositories](docs/upstream-repositories.md) | Карта внешних репозиториев и их роль                     |
+| [Installation Strategy](docs/installation-strategy.md) | План эволюции installer-а и будущего selector-а          |
+| [Reverse Proxy](docs/reverse-proxy.md)                 | Схемы с `nginx stream` и Traefik TCP                     |
+| [Troubleshooting](docs/troubleshooting.md)             | Практические проблемы и рабочие обходы                   |
 
 ## Дополнительно
 
@@ -47,16 +50,35 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/inst
 - [providers/mtg/README.md](providers/mtg/README.md) - план по альтернативному provider path
 - [providers/official/README.md](providers/official/README.md) - reference notes по official stack
 
-## Quick Commands
+## Операции
 
-| Command | Description |
-|---------|-------------|
-| `make setup` | создать локальные `.env` и `telemt.toml` из example-файлов |
-| `make dev` | поднять локальный Telemt stack через root `docker-compose.yml` |
-| `make test` | прогнать shell smoke-checks и проверить compose-конфиги |
-| `make lint` | проверить `install.sh` через `shellcheck` |
-| `make build` | провалидировать root/provider Compose manifests |
-| `make docker-logs` | посмотреть логи контейнера `telemt` |
+| Скрипт         | Описание                                          |
+|----------------|---------------------------------------------------|
+| `install.sh`   | Установка с нуля                                  |
+| `update.sh`    | Обновление образа и перезапуск (сохраняет конфиг) |
+| `uninstall.sh` | Удаление контейнера, образа и данных              |
+
+```bash
+# Обновление
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/update.sh | sudo bash
+
+# Удаление
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/uninstall.sh | sudo bash
+
+# Удаление с сохранением данных
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/uninstall.sh | sudo env KEEP_DATA=true bash
+```
+
+## Локальная разработка
+
+| Command            | Description                                                    |
+|--------------------|----------------------------------------------------------------|
+| `make setup`       | создать локальные `.env` и `telemt.toml` из example-файлов     |
+| `make dev`         | поднять локальный Telemt stack через root `docker-compose.yml` |
+| `make test`        | прогнать shell smoke-checks и проверить compose-конфиги        |
+| `make lint`        | проверить `install.sh` через `shellcheck`                      |
+| `make build`       | провалидировать root/provider Compose manifests                |
+| `make docker-logs` | посмотреть логи контейнера `telemt`                            |
 
 Запусти `make help`, чтобы увидеть полный список targets.
 

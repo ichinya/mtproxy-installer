@@ -113,13 +113,46 @@ make test
 
 Минимальная проверка после старта:
 
-- убедись, что контейнер запущен через `docker compose ps`
-- проверь, что Control API доступен только локально на `127.0.0.1:9091`
-- сохрани полученную `tg://proxy` ссылку или прочитай пользователя через API `telemt`
-- если используется нестандартный порт, проверь доступность именно этого порта снаружи
+```bash
+# Проверка здоровья API
+curl http://127.0.0.1:9091/v1/health
+
+# Получение proxy links
+curl http://127.0.0.1:9091/v1/users
+
+# Просмотр логов
+docker compose -f /opt/mtproxy-installer/docker-compose.yml \
+  --project-directory /opt/mtproxy-installer \
+  --env-file /opt/mtproxy-installer/.env logs -f telemt
+```
+
+Контрольный список:
+
+- контейнер запущен: `docker compose ps`
+- API отвечает только на `127.0.0.1:9091`
+- получена `tg://proxy` ссылка
+- порт доступен снаружи
 
 Если трафик идет через reverse proxy, сразу переходи к [Reverse Proxy](reverse-proxy.md). Если есть проблемы с медиа,
 SNI или `proxy_protocol`, смотри [Troubleshooting](troubleshooting.md).
+
+## Обновление
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/update.sh | sudo bash
+```
+
+Скрипт сохраняет конфиг и секрет, подтягивает свежий образ и перезапускает контейнер.
+
+## Удаление
+
+```bash
+# Полное удаление
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/uninstall.sh | sudo bash
+
+# С сохранением данных
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/uninstall.sh | sudo env KEEP_DATA=true bash
+```
 
 ## Следующие шаги
 

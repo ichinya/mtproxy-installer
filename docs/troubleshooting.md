@@ -93,7 +93,8 @@
 
 ## Свой домен против чужого SNI
 
-В комментариях заметно желание использовать не чужой домен вроде `google.com`, а свой реальный домен и свой fallback-сайт.
+В комментариях заметно желание использовать не чужой домен вроде `google.com`, а свой реальный домен и свой
+fallback-сайт.
 
 Практический смысл:
 
@@ -133,6 +134,148 @@
 
 - не формулировать это как универсальное правило;
 - писать честно: «проверять по месту и по своему провайдеру».
+
+## Runtime логи: что нормально, что требует внимания
+
+### Нормальные сообщения при старте
+
+```
+INFO telemt::maestro: Telemt MTProxy v3.3.15
+INFO telemt::maestro: Modes: classic=false secure=false tls=true
+INFO telemt::maestro: TLS domain: habr.com
+INFO telemt::maestro: Mask: true -> habr.com:443
+INFO telemt::api: API endpoint: http://0.0.0.0:9091/v1/*
+INFO telemt::maestro::listeners: Listening on 0.0.0.0:443
+INFO telemt::links: --- Proxy Links (YOUR_IP) ---
+```
+
+Это означает: контейнер стартовал, TLS-маскировка включена, API доступен.
+
+### "No usable IP family for Middle Proxy"
+
+```
+WARN telemt::maestro: No usable IP family for Middle Proxy detected; falling back to direct DC
+INFO telemt::maestro: Transport: Direct DC - TCP - standard DC-over-TCP
+```
+
+Это **ожидаемо** для большинства инсталляций. Middle Proxy — отдельный Telegram-инфраструктурный элемент, который не
+всегда доступен. Direct DC работает напрямую с дата-центрами Telegram.
+
+### Connectivity check
+
+```
+INFO telemt::maestro::connectivity: ================= Telegram DC Connectivity =================
+INFO telemt::maestro::connectivity:   IPv4 only / IPv6 unavailable
+INFO telemt::maestro::connectivity:     DC1 [IPv4] 149.154.175.50:443                            126 ms
+INFO telemt::maestro::connectivity:     DC2 [IPv4] 149.154.167.51:443                            32 ms
+...
+```
+
+Если все DC показывают задержки — connectivity OK. Если какой-то DC недоступен — возможно, проблема с маршрутизацией.
+
+### Сканеры портов
+
+```
+INFO telemt::maestro::listeners: Connection closed during initial handshake peer=147.45.169.173:51706 error=IO error: expected 64 bytes, got 0
+```
+
+Это сканеры портов или боты, которые подключаются к 443 и отправляют HTTP/нечитаемые данные. Telemt корректно разрывает
+такие соединения. Это нормально для публичного порта 443.
+
+### Реальные подключения
+
+```
+WARN telemt::proxy::relay: Activity timeout user=public c2s_bytes=5268 s2c_bytes=720719 idle_secs=1804
+```
+
+Это реальный клиентский трафик:
+
+- `c2s_bytes` — client to server (клиент → Telegram)
+- `s2c_bytes` — server to client (Telegram → клиент)
+- `idle_secs` — время неактивности до timeout
+
+Если `s2c_bytes >> c2s_bytes` — типичная картина для скачивания медиа/сообщений.
+
+### Timeout ошибки
+
+```
+WARN telemt::maestro::listeners: Connection closed with error peer=37.76.153.5:1190 error=IO error: Operation timed out (os error 110)
+```
+
+Сетевой timeout между клиентом и сервером. Возможные причины:
+
+- проблемы на стороне клиента (мобильный интернет)
+- временные проблемы с маршрутизацией
+- блокировка на уровне провайдера
+
+Если такие ошибки редки — не требуют действия. Если массовы — проверьте сеть/фильтрацию.
+
+## Операционные команды
+
+### Проверка здоровья API
+
+```bash
+curl http://127.0.0.1:9091/v1/health
+```
+
+Ожидаемый ответ:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "status": "ok",
+    "read_only": true
+  },
+  "revision": "..."
+}
+```
+
+### Получение proxy links
+
+```bash
+curl http://127.0.0.1:9091/v1/users
+```
+
+### Просмотр логов
+
+```bash
+docker compose -f /opt/mtproxy-installer/docker-compose.yml \
+  --project-directory /opt/mtproxy-installer \
+  --env-file /opt/mtproxy-installer/.env logs -f telemt
+```
+
+### Перезапуск
+
+```bash
+docker compose -f /opt/mtproxy-installer/docker-compose.yml \
+  --project-directory /opt/mtproxy-installer \
+  --env-file /opt/mtproxy-installer/.env restart
+```
+
+### Остановка
+
+```bash
+docker compose -f /opt/mtproxy-installer/docker-compose.yml \
+  --project-directory /opt/mtproxy-installer \
+  --env-file /opt/mtproxy-installer/.env down
+```
+
+## Обновление
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/update.sh | sudo bash
+```
+
+См. [update.sh](../update.sh) — сохраняет секрет и конфиг, обновляет образ и compose.
+
+## Удаление
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/uninstall.sh | sudo bash
+```
+
+См. [uninstall.sh](../uninstall.sh) — удаляет контейнер, образ и данные.
 
 ## See Also
 
