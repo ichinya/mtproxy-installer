@@ -1,3 +1,5 @@
+[← Configuration](configuration.md) · [Back to README](../README.md) · [Upstream Repositories →](upstream-repositories.md)
+
 # Providers
 
 Этот документ фиксирует текущую стратегию репозитория по провайдерам.
@@ -142,3 +144,9 @@ Official MTProxy нужен как reference provider.
 - стратегия future selector-а: `docs/installation-strategy.md`
 - практические кейсы и проблемы из Habr: `docs/troubleshooting.md`
 - provider-specific notes: `providers/README.md`
+
+## See Also
+
+- [Configuration](configuration.md) - переменные окружения и ключевые параметры Telemt
+- [Upstream Repositories](upstream-repositories.md) - откуда берутся provider decisions
+- [Installation Strategy](installation-strategy.md) - как текущий default path должен эволюционировать дальше

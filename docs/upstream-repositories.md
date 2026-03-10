@@ -1,3 +1,5 @@
+[← Providers](providers.md) · [Back to README](../README.md) · [Installation Strategy →](installation-strategy.md)
+
 # Upstream Repositories
 
 Этот документ - «карта источников» для будущих вариантов установки.
@@ -202,3 +204,9 @@
 - `proxy_protocol` в сценариях `nginx stream` / Traefik / HAProxy;
 - насколько стабильны порты `8443` и `9443` относительно `443`;
 - что именно из official semantics нужно воспроизвести в provider selector UX.
+
+## See Also
+
+- [Providers](providers.md) - итоговая provider matrix и ограничения
+- [Installation Strategy](installation-strategy.md) - как эти upstream choices влияют на roadmap installer-а
+- [Troubleshooting](troubleshooting.md) - практические проблемы, которые надо сверять с upstream behavior

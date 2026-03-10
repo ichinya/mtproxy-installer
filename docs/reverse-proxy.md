@@ -1,3 +1,5 @@
+[← Installation Strategy](installation-strategy.md) · [Back to README](../README.md) · [Troubleshooting →](troubleshooting.md)
+
 # Reverse Proxy
 
 Этот документ собирает выводы из переписки про `telemt` как default provider, FakeTLS и L4-routing поверх MTProxy.
@@ -83,3 +85,9 @@ server {
 - `examples/traefik/dynamic-tcp-router.yml` - пример для Traefik TCP;
 - `docs/providers.md` - ограничения и ожидания по провайдерам;
 - issues - место для acceptance criteria и тестовой матрицы.
+
+## See Also
+
+- [Getting Started](getting-started.md) - базовый старт без reverse proxy
+- [Configuration](configuration.md) - параметры `tls_domain`, `mask_port` и related настройки
+- [Troubleshooting](troubleshooting.md) - типовые ошибки с SNI-routing и `proxy_protocol`

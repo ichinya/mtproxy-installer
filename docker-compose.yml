@@ -1,18 +1,26 @@
-version: "3"
-
 services:
-
-  mtproxy:
-    image: telegrammessenger/proxy:latest
-    container_name: mtproxy
+  telemt:
+    image: ${TELEMT_IMAGE:-whn0thacked/telemt-docker:latest}
+    container_name: telemt
     restart: unless-stopped
-
-    ports:
-      - "${PORT}:443"
-
     environment:
-      - SECRET=${SECRET}
-
+      RUST_LOG: ${RUST_LOG:-info}
     volumes:
-      - ./data:/data
-      
+      - ./providers/telemt/telemt.toml:/etc/telemt.toml:ro
+      - ./providers/telemt/data:/var/lib/telemt
+    ports:
+      - "${PORT}:443/tcp"
+      - "127.0.0.1:${API_PORT}:9091/tcp"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536

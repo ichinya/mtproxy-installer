@@ -1,3 +1,5 @@
+[← Reverse Proxy](reverse-proxy.md) · [Back to README](../README.md)
+
 # Troubleshooting
 
 Этот документ собирает практические выводы из статьи на Habr, комментариев и upstream discussions.
@@ -131,3 +133,9 @@
 
 - не формулировать это как универсальное правило;
 - писать честно: «проверять по месту и по своему провайдеру».
+
+## See Also
+
+- [Getting Started](getting-started.md) - базовая проверка после установки
+- [Configuration](configuration.md) - параметры, которые чаще всего приходится корректировать
+- [Reverse Proxy](reverse-proxy.md) - схемы, где часто проявляются сетевые проблемы

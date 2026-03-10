@@ -1,3 +1,5 @@
+[← Upstream Repositories](upstream-repositories.md) · [Back to README](../README.md) · [Reverse Proxy →](reverse-proxy.md)
+
 # Installation Strategy
 
 Этот документ описывает не текущую реализацию как таковую, а план того, как installer должен эволюционировать дальше.
@@ -124,3 +126,9 @@ providers/
 - не прятать provider-specific caveats в общий README;
 - не смешивать reference docs и actual supported install path;
 - не делать вид, что `ad_tag` или calls работают везде одинаково.
+
+## See Also
+
+- [Getting Started](getting-started.md) - текущий практический путь установки без selector-а
+- [Providers](providers.md) - чем отличаются planned provider paths
+- [Reverse Proxy](reverse-proxy.md) - один из сценариев, который влияет на provider contract
