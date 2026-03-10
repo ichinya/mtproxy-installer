@@ -1,0 +1,44 @@
+[general]
+use_middle_proxy = true
+proxy_secret_path = "/var/lib/telemt/proxy-secret"
+middle_proxy_nat_ip = "203.0.113.10"
+middle_proxy_nat_probe = false
+log_level = "normal"
+
+[general.modes]
+classic = false
+secure = false
+tls = true
+
+[general.links]
+show = "*"
+public_host = "203.0.113.10"
+public_port = 443
+
+[server]
+port = 443
+listen_addr_ipv4 = "0.0.0.0"
+listen_addr_ipv6 = "::"
+proxy_protocol = false
+metrics_whitelist = ["127.0.0.1/32", "::1/128"]
+
+[server.api]
+enabled = true
+listen = "0.0.0.0:9091"
+whitelist = []
+read_only = true
+
+[[server.listeners]]
+ip = "0.0.0.0"
+announce = "203.0.113.10"
+
+[censorship]
+tls_domain = "www.google.com"
+mask = true
+mask_port = 443
+fake_cert_len = 2048
+tls_emulation = true
+tls_front_dir = "/var/lib/telemt/tlsfront"
+
+[access.users]
+"main" = "0123456789abcdef0123456789abcdef"

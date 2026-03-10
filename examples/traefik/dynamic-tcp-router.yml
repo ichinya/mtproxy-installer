@@ -1,0 +1,29 @@
+tcp:
+  routers:
+    proxy:
+      rule: "HostSNI(`tg.example.com`)"
+      entryPoints:
+        - websecure
+      service: proxy
+      tls:
+        passthrough: true
+      priority: 100
+
+    catchall:
+      rule: "HostSNI(`*`)"
+      entryPoints:
+        - websecure
+      service: https-backend
+      tls: {}
+      priority: 1
+
+  services:
+    proxy:
+      loadBalancer:
+        servers:
+          - address: "127.0.0.1:600"
+
+    https-backend:
+      loadBalancer:
+        servers:
+          - address: "127.0.0.1:4443"
