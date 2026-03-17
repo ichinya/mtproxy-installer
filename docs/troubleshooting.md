@@ -115,6 +115,13 @@ fallback-сайт.
 - calls часто не работают или работают нестабильно;
 - это ограничение скорее на уровне самого класса решений, а не просто баг конкретного installer-а.
 
+Практическая интерпретация для этого репозитория:
+
+- даже при корректном `tg://proxy`, рабочем `v1/health` и нормальном текстовом трафике calls могут не подниматься;
+- warning-строки вида `Upstream failed after retries: Connection timeout to ...:8888` и `ME immediate refill failed ...`
+  показывают деградацию Middle Proxy path, но не являются доказательством, что именно installer "сломал звонки";
+- считать багом installer-а стоит случаи, где ломаются сообщения, каналы, media или сам Control API, а не только calls.
+
 Вывод для репозитория:
 
 - installer не должен обещать рабочие calls;
@@ -137,13 +144,40 @@ fallback-сайт.
 
 ## Runtime логи: что нормально, что требует внимания
 
+### Быстрая диагностика: Direct DC vs Middle Proxy
+
+Проверьте логи после старта:
+
+```bash
+docker compose logs telemt 2>&1 | grep -E "(Transport|STUN-Quorum|Middle Proxy)"
+```
+
+**Хорошо (Middle Proxy включен):**
+```
+INFO telemt::network::probe: STUN-Quorum reached, IP: YOUR_IP
+INFO telemt::maestro: Transport: Middle-End Proxy - all DC-over-RPC
+```
+
+**Плохо (Direct DC — возможны блокировки):**
+```
+WARN telemt::maestro: No usable IP family for Middle Proxy detected; falling back to direct DC
+INFO telemt::maestro: Transport: Direct DC - TCP - standard DC-over-TCP
+```
+
+**Исправление:**
+```bash
+# Включить STUN probe
+sed -i 's/middle_proxy_nat_probe = false/middle_proxy_nat_probe = true/' /opt/mtproxy-installer/providers/telemt/telemt.toml
+docker compose restart
+```
+
 ### Нормальные сообщения при старте
 
 ```
 INFO telemt::maestro: Telemt MTProxy v3.3.15
 INFO telemt::maestro: Modes: classic=false secure=false tls=true
-INFO telemt::maestro: TLS domain: habr.com
-INFO telemt::maestro: Mask: true -> habr.com:443
+INFO telemt::maestro: TLS domain: www.wikipedia.org
+INFO telemt::maestro: Mask: true -> www.wikipedia.org:443
 INFO telemt::api: API endpoint: http://0.0.0.0:9091/v1/*
 INFO telemt::maestro::listeners: Listening on 0.0.0.0:443
 INFO telemt::links: --- Proxy Links (YOUR_IP) ---
@@ -158,8 +192,20 @@ WARN telemt::maestro: No usable IP family for Middle Proxy detected; falling bac
 INFO telemt::maestro: Transport: Direct DC - TCP - standard DC-over-TCP
 ```
 
-Это **ожидаемо** для большинства инсталляций. Middle Proxy — отдельный Telegram-инфраструктурный элемент, который не
-всегда доступен. Direct DC работает напрямую с дата-центрами Telegram.
+Это означает, что Middle Proxy не может быть использован. Решение:
+
+1. Установите `middle_proxy_nat_probe = true` в конфигурации
+2. Перезапустите контейнер
+
+После успешного определения IP через STUN вы увидите:
+
+```
+INFO telemt::network::probe: STUN-Quorum reached, IP: YOUR_IP
+INFO telemt::maestro: Transport: Middle-End Proxy - all DC-over-RPC
+```
+
+Middle Proxy маршрутизирует трафик через сервера Telegram (порт 8888) вместо прямого подключения к DC (порт 443),
+что обходит блокировки на уровне TLS.
 
 ### Connectivity check
 
@@ -209,6 +255,35 @@ WARN telemt::maestro::listeners: Connection closed with error peer=37.76.153.5:1
 - блокировка на уровне провайдера
 
 Если такие ошибки редки — не требуют действия. Если массовы — проверьте сеть/фильтрацию.
+
+### DC Connection Timeout (блокировка на уровне TLS)
+
+```
+WARN telemt::transport::upstream: Upstream failed after retries: Connection timeout to 149.154.167.51:443
+WARN telemt::maestro::listeners: Connection closed with error error=Connection timeout to 149.154.167.51:443
+```
+
+Симптом: TCP-соединение устанавливается, но TLS-handshake зависает. Это признак блокировки на уровне TLS
+со стороны Telegram для вашего IP.
+
+**Решения:**
+
+1. **Включить Middle Proxy** (рекомендуется):
+   ```toml
+   middle_proxy_nat_probe = true
+   ```
+
+2. **Отключить TLS эмуляцию**:
+   ```toml
+   tls_emulation = false
+   ```
+
+3. **Сменить TLS-домен** на другой популярный:
+   ```toml
+   tls_domain = "www.wikipedia.org"
+   ```
+
+После включения Middle Proxy трафик пойдет через `port 8888` (RPC) вместо `port 443` (TLS), что обходит блокировку.
 
 ## Операционные команды
 

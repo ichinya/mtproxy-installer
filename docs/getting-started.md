@@ -131,7 +131,12 @@ docker compose -f /opt/mtproxy-installer/docker-compose.yml \
 - контейнер запущен: `docker compose ps`
 - API отвечает только на `127.0.0.1:9091`
 - получена `tg://proxy` ссылка
+- через прокси открываются сообщения / каналы / media
 - порт доступен снаружи
+
+Что не использовать как acceptance-критерий:
+
+- голосовые звонки Telegram; для текущего MTProto/Telemt path они не считаются гарантированно поддерживаемым сценарием.
 
 Если трафик идет через reverse proxy, сразу переходи к [Reverse Proxy](reverse-proxy.md). Если есть проблемы с медиа,
 SNI или `proxy_protocol`, смотри [Troubleshooting](troubleshooting.md).

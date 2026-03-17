@@ -2,7 +2,7 @@
 use_middle_proxy = true
 proxy_secret_path = "/var/lib/telemt/proxy-secret"
 middle_proxy_nat_ip = "203.0.113.10"
-middle_proxy_nat_probe = false
+middle_proxy_nat_probe = true
 log_level = "normal"
 
 [general.modes]
@@ -33,11 +33,11 @@ ip = "0.0.0.0"
 announce = "203.0.113.10"
 
 [censorship]
-tls_domain = "www.google.com"
+tls_domain = "www.wikipedia.org"
 mask = true
 mask_port = 443
 fake_cert_len = 2048
-tls_emulation = true
+tls_emulation = false
 tls_front_dir = "/var/lib/telemt/tlsfront"
 
 [access.users]

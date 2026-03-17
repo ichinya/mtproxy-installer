@@ -11,11 +11,15 @@ PORT="${PORT:-443}"
 API_PORT="${API_PORT:-9091}"
 TELEMT_IMAGE="${TELEMT_IMAGE:-whn0thacked/telemt-docker:latest}"
 RUST_LOG="${RUST_LOG:-info}"
-TLS_DOMAIN="${TLS_DOMAIN:-www.google.com}"
+TLS_DOMAIN="${TLS_DOMAIN:-www.wikipedia.org}"
 PROXY_USER="${PROXY_USER:-main}"
 
 log() {
     printf '%s\n' "$1"
+}
+
+log_fix() {
+    log "[FIX] $1"
 }
 
 die() {
@@ -155,7 +159,7 @@ write_telemt_config() {
 use_middle_proxy = true
 proxy_secret_path = "/var/lib/telemt/proxy-secret"
 middle_proxy_nat_ip = "${public_ip}"
-middle_proxy_nat_probe = false
+middle_proxy_nat_probe = true
 log_level = "normal"
 
 [general.modes]
@@ -190,7 +194,7 @@ tls_domain = "${TLS_DOMAIN}"
 mask = true
 mask_port = 443
 fake_cert_len = 2048
-tls_emulation = true
+tls_emulation = false
 tls_front_dir = "/var/lib/telemt/tlsfront"
 
 [access.users]
@@ -286,6 +290,9 @@ main() {
     log "Local Telemt API: http://127.0.0.1:${API_PORT}/v1/health"
     log "Config: ${PROVIDER_DIR}/telemt.toml"
     log "Logs: docker compose -f ${INSTALL_DIR}/docker-compose.yml --project-directory ${INSTALL_DIR} --env-file ${INSTALL_DIR}/.env logs -f telemt"
+    log ""
+    log_fix "Telegram voice calls are not guaranteed over MTProto proxy / Telemt deployments."
+    log_fix "Treat text, media, API health, and proxy link issuance as the supported success criteria."
 }
 
 main "$@"

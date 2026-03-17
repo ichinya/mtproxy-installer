@@ -20,6 +20,12 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/inst
 - **Быстрый выход на `tg://proxy`** - после запуска installer пытается получить готовую ссылку из API `telemt`
 - **Практические deployment notes** - в репозитории уже есть reverse-proxy примеры, provider strategy и troubleshooting
 
+## Что этот installer не обещает
+
+- голосовые звонки Telegram нельзя считать supported use case для MTProto proxy path;
+- успешная установка означает доступ к Telegram, media и локальному Control API, но не гарантию рабочих calls;
+- если calls являются жестким требованием, это нужно проверять отдельным сетевым путем, а не считать дефектом installer-а по умолчанию.
+
 ## Пример
 
 ```bash

@@ -26,7 +26,7 @@ provider-level параметры и ключевые поля `providers/telemt
 | `PORT`         | `443` или `8443`         | Порт, на котором слушает прокси          |
 | `API_PORT`     | `9091`                   | Публикация локального API на `127.0.0.1` |
 | `TELEMT_IMAGE` | published image          | Какой контейнер запускать                |
-| `TLS_DOMAIN`   | `www.google.com`         | FakeTLS-домен                            |
+| `TLS_DOMAIN`   | `www.wikipedia.org`      | FakeTLS-домен                            |
 | `RUST_LOG`     | `info`                   | Runtime verbosity                        |
 | `PROXY_USER`   | `main`                   | Имя пользователя для startup link        |
 
@@ -34,7 +34,7 @@ provider-level параметры и ключевые поля `providers/telemt
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | \
-  sudo env PORT=8443 TLS_DOMAIN=habr.com PROXY_USER=public bash
+  sudo env PORT=8443 TLS_DOMAIN=www.wikipedia.org PROXY_USER=public bash
 ```
 
 ## Ключевые секции `telemt.toml`
@@ -44,12 +44,16 @@ production-запуском.
 
 ### `[general]`
 
-| Key                   | Default                        | Meaning                                        |
-|-----------------------|--------------------------------|------------------------------------------------|
-| `use_middle_proxy`    | `true`                         | Включает middle-proxy path                     |
-| `proxy_secret_path`   | `/var/lib/telemt/proxy-secret` | Путь к secret внутри контейнера                |
-| `middle_proxy_nat_ip` | `203.0.113.10`                 | Внешний IP, который нужно заменить на реальный |
-| `log_level`           | `normal`                       | Базовый уровень логов Telemt                   |
+| Key                      | Default                        | Meaning                                         |
+|--------------------------|--------------------------------|-------------------------------------------------|
+| `use_middle_proxy`       | `true`                         | Включает middle-proxy path                      |
+| `proxy_secret_path`      | `/var/lib/telemt/proxy-secret` | Путь к secret внутри контейнера                 |
+| `middle_proxy_nat_ip`    | `203.0.113.10`                 | Внешний IP, который нужно заменить на реальный  |
+| `middle_proxy_nat_probe` | `true`                         | Включить STUN probe для определения внешнего IP |
+| `log_level`              | `normal`                       | Базовый уровень логов Telemt                    |
+
+**Важно:** `middle_proxy_nat_probe = true` рекомендуется для большинства инсталляций. Это позволяет Telemt автоматически
+определить внешний IP через STUN и использовать Middle Proxy mode вместо прямого подключения к DC.
 
 ### `[general.modes]`
 
@@ -94,11 +98,16 @@ production-запуском.
 
 | Key             | Default                    | Meaning                |
 |-----------------|----------------------------|------------------------|
-| `tls_domain`    | `www.google.com`           | FakeTLS-домен          |
+| `tls_domain`    | `www.wikipedia.org`        | FakeTLS-домен          |
 | `mask`          | `true`                     | Включает masking path  |
 | `mask_port`     | `443`                      | Порт fallback backend  |
-| `tls_emulation` | `true`                     | Эмуляция TLS поведения |
+| `tls_emulation` | `false`                    | Эмуляция TLS поведения |
 | `tls_front_dir` | `/var/lib/telemt/tlsfront` | Каталог TLS front data |
+
+**Примечание по `tls_emulation`:**
+
+- `false` (рекомендуется) — более стабильная работа, меньше проблем с блокировками
+- `true` — полная эмуляция TLS, но может вызывать проблемы с некоторыми DC
 
 Если хочешь более естественный production path, вместо чужого домена лучше использовать свой домен и свой fallback
 backend. Практические детали смотри в [Reverse Proxy](reverse-proxy.md).
@@ -123,6 +132,7 @@ backend. Практические детали смотри в [Reverse Proxy](r
 Для большинства серверов достаточно сначала заменить:
 
 - `middle_proxy_nat_ip`
+- `middle_proxy_nat_probe` — установить `true` если сервер за NAT или нужно автоматическое определение IP
 - `public_host`
 - `announce`
 - `tls_domain`
