@@ -196,7 +196,7 @@ EOF
 
 write_mtg_config() {
     cat > "${PROVIDER_DIR}/mtg.conf" <<EOF
-bind = "0.0.0.0:443"
+bind = "0.0.0.0:3128"
 advertise = "${PUBLIC_IP}:${PORT}"
 secret = "${SECRET}"
 tls-domain = "${TLS_DOMAIN}"
@@ -208,7 +208,7 @@ write_mtg_compose() {
     cat > "${INSTALL_DIR}/docker-compose.yml" <<'EOF'
 services:
   mtg:
-    image: ${MTG_IMAGE}
+    image: ${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}
     container_name: mtg
     restart: unless-stopped
     environment:
@@ -217,7 +217,7 @@ services:
       - ./providers/mtg/mtg.conf:/etc/mtg.conf:ro
       - ./providers/mtg/data:/var/lib/mtg
     ports:
-      - "${PORT}:443/tcp"
+      - "${PORT}:3128/tcp"
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -338,11 +338,11 @@ main() {
         telemt)
             export TELEMT_IMAGE="${TELEMT_IMAGE:-whn0thacked/telemt-docker:latest}"
             export RUST_LOG="${RUST_LOG:-info}"
-            ;;
+        ;;
         mtg)
             export MTG_IMAGE="${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}"
             export MTG_DEBUG="${MTG_DEBUG:-info}"
-            ;;
+        ;;
     esac
     export PORT PUBLIC_IP SECRET TLS_DOMAIN
     

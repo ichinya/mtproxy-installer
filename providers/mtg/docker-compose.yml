@@ -9,7 +9,7 @@ services:
       - ./mtg.conf:/etc/mtg.conf:ro
       - ./data:/var/lib/mtg
     ports:
-      - "${PORT}:443/tcp"
+      - "${PORT}:3128/tcp"
     security_opt:
       - no-new-privileges:true
     cap_drop:
