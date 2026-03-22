@@ -3,10 +3,8 @@ services:
     image: ${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}
     container_name: mtg
     restart: unless-stopped
-    environment:
-      MTG_DEBUG: ${MTG_DEBUG:-info}
     volumes:
-      - ./mtg.conf:/etc/mtg.conf:ro
+      - ./mtg.conf:/config.toml:ro
       - ./data:/var/lib/mtg
     ports:
       - "${PORT}:3128/tcp"

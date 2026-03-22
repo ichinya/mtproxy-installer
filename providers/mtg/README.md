@@ -26,9 +26,16 @@ PROVIDER=mtg curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-instal
 mtg использует FakeTLS секреты специального формата:
 
 ```bash
-# Генерация секрета с TLS доменом
-docker run --rm ghcr.io/9seconds/mtg:latest generate-secret tls www.google.com
+# Base64 secret
+docker run --rm ghcr.io/9seconds/mtg:latest generate-secret www.google.com
+
+# Hex secret (начинается с ee)
+docker run --rm ghcr.io/9seconds/mtg:latest generate-secret --hex www.google.com
 ```
+
+Для `mtg v2` в конфиге обязательны только `secret` и `bind-to`.
+Публичный `IP:PORT` задается не через `advertise`, а через опубликованный Docker-порт и ссылку,
+которую installer печатает после запуска.
 
 ## Почему он нам нужен
 

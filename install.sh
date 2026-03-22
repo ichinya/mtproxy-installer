@@ -204,14 +204,13 @@ EOF
 
 write_mtg_config() {
     local debug_flag=false
-    if [ "${MTG_DEBUG:-info}" = "debug" ]; then
+    if [ "${MTG_DEBUG:-info}" = "debug" ] || [ "${MTG_DEBUG:-info}" = "true" ] || [ "${MTG_DEBUG:-info}" = "1" ]; then
         debug_flag=true
     fi
     
     cat > "${PROVIDER_DIR}/mtg.conf" <<EOF
-bind = "0.0.0.0:3128"
-advertise = "${PUBLIC_IP}:${PORT}"
 secret = "${SECRET}"
+bind-to = "0.0.0.0:3128"
 debug = ${debug_flag}
 EOF
 }
@@ -223,8 +222,6 @@ services:
     image: ${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}
     container_name: mtg
     restart: unless-stopped
-    environment:
-      MTG_DEBUG: ${MTG_DEBUG}
     volumes:
       - ./providers/mtg/mtg.conf:/config.toml:ro
       - ./providers/mtg/data:/var/lib/mtg
@@ -244,6 +241,14 @@ services:
         soft: 65536
         hard: 65536
 EOF
+}
+
+validate_mtg_config() {
+    log_fix "Validating generated mtg config with mtg access."
+    docker run --rm \
+        -v "${PROVIDER_DIR}/mtg.conf:/config.toml:ro" \
+        "${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}" \
+        access /config.toml >/dev/null
 }
 
 urlencode() {
@@ -298,6 +303,13 @@ write_provider_files() {
             write_mtg_env
             write_mtg_config
         ;;
+    esac
+}
+
+validate_provider_files() {
+    case "${PROVIDER}" in
+        telemt) return 0 ;;
+        mtg)    validate_mtg_config ;;
     esac
 }
 
@@ -374,6 +386,7 @@ main() {
     
     setup_provider
     write_provider_files
+    validate_provider_files
     
     log "Starting ${PROVIDER}..."
     docker compose -f "${INSTALL_DIR}/docker-compose.yml" --project-directory "${INSTALL_DIR}" --env-file "${INSTALL_DIR}/.env" down || true

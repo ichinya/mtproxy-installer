@@ -1,23 +1,15 @@
-# mtg configuration
+# mtg v2 minimal configuration
 # See: https://github.com/9seconds/mtg
+# Only `secret` and `bind-to` are required.
 
-# Bind address (default: 0.0.0.0:443)
-bind = "0.0.0.0:443"
+# FakeTLS secret.
+# Generate one with:
+#   docker run --rm ghcr.io/9seconds/mtg:latest generate-secret --hex www.google.com
+secret = "ee473ce5d4958eb5f968c87680a23854a0676f6f676c652e636f6d"
 
-# Public endpoint (replace with your server IP)
-# Format: IP:PORT or DOMAIN:PORT
-advertise = "203.0.113.10:443"
+# Bind address inside the container.
+# The public port is controlled by Docker's published port mapping.
+bind-to = "0.0.0.0:3128"
 
-# FakeTLS secret (generate with: mtg generate-secret tls <domain>)
-# This is an EXAMPLE secret - replace with your own!
-secret = "dd00000000000000000000000000000000"
-
-# TLS domain for FakeTLS (mimic legitimate HTTPS traffic)
-tls-domain = "www.google.com"
-
-# Debug level: error, warn, info, debug
-debug = "info"
-
-# Access list (optional)
-# allow = []
-# deny = []
+# Debug mode is boolean in mtg v2.
+debug = false
