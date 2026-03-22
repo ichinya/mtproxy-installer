@@ -12,8 +12,17 @@
 # telemt (default)
 curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo bash
 
+# telemt on 8443 with custom FakeTLS domain
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo env TLS_DOMAIN=www.wikipedia.org bash -s -- telemt 8443
+
 # mtg
 curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo env PROVIDER=mtg bash
+
+# mtg on 8443 with custom FakeTLS domain
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo env TLS_DOMAIN=www.wikipedia.org bash -s -- mtg 8443
+
+# telemt via env-only override
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo env TLS_DOMAIN=www.wikipedia.org PORT=4321 bash
 ```
 
 ## Почему это полезно
@@ -37,6 +46,14 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/inst
 ```
 
 Этот запуск оставляет основной путь на `telemt`, но меняет внешний порт, TLS-домен и имя пользователя для ссылки прокси.
+
+Если нужен явный выбор провайдера в одну строку:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo env TLS_DOMAIN=www.wikipedia.org bash -s -- telemt 8443
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo env TLS_DOMAIN=www.wikipedia.org bash -s -- mtg 8443
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo env TLS_DOMAIN=www.wikipedia.org PORT=4321 bash
+```
 
 ---
 
