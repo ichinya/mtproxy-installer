@@ -60,7 +60,7 @@ backup_if_exists() {
 generate_secret() {
     case "${PROVIDER}" in
         telemt) openssl rand -hex 16 ;;
-        mtg)    printf 'dd%s\n' "$(openssl rand -hex 16)" ;;
+        mtg)    printf 'ee%s%s\n' "$(openssl rand -hex 16)" "${TLS_DOMAIN}" ;;
         *)      die "Unknown provider: ${PROVIDER}" ;;
     esac
 }
@@ -199,7 +199,6 @@ write_mtg_config() {
 bind = "0.0.0.0:3128"
 advertise = "${PUBLIC_IP}:${PORT}"
 secret = "${SECRET}"
-tls-domain = "${TLS_DOMAIN}"
 debug = "${MTG_DEBUG:-info}"
 EOF
 }
