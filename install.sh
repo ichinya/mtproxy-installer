@@ -234,8 +234,22 @@ services:
 EOF
 }
 
+urlencode() {
+    local str="$1"
+    # Portable fallback if python3 not present
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$str"
+        elif command -v python >/dev/null 2>&1; then
+        python -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$str"
+    else
+        # Not ideal, but dot and alnum are safe; fallback means secret may break on some clients
+        printf '%s' "$str"
+    fi
+}
+
 get_mtg_link() {
-    printf 'tg://proxy?server=%s&port=%s&secret=%s\n' "${PUBLIC_IP}" "${PORT}" "${SECRET}"
+    local encoded_secret="$(urlencode "${SECRET}")"
+    printf 'tg://proxy?server=%s&port=%s&secret=%s\n' "${PUBLIC_IP}" "${PORT}" "${encoded_secret}"
 }
 
 # =============================================================================
