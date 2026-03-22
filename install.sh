@@ -203,11 +203,16 @@ EOF
 }
 
 write_mtg_config() {
+    local debug_flag=false
+    if [ "${MTG_DEBUG:-info}" = "debug" ]; then
+        debug_flag=true
+    fi
+    
     cat > "${PROVIDER_DIR}/mtg.conf" <<EOF
 bind = "0.0.0.0:3128"
 advertise = "${PUBLIC_IP}:${PORT}"
 secret = "${SECRET}"
-debug = "${MTG_DEBUG:-info}"
+debug = ${debug_flag}
 EOF
 }
 
