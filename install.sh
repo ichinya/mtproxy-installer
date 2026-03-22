@@ -336,7 +336,7 @@ main() {
     write_provider_files
 
     log "Starting ${PROVIDER}..."
-    docker compose -f "${INSTALL_DIR}/docker-compose.yml" --project-directory "${INSTALL_DIR}" up -d
+    docker compose -f "${INSTALL_DIR}/docker-compose.yml" --project-directory "${INSTALL_DIR}" --env-file "${INSTALL_DIR}/.env" up -d
 
     sleep 3
     PROXY_LINK="$(get_proxy_link)" || true
