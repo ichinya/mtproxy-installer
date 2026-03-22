@@ -70,7 +70,8 @@ generate_secret() {
 # =============================================================================
 
 write_telemt_env() {
-    cat > "${PROVIDER_DIR}/.env" <<EOF
+    # Root .env for docker compose
+    cat > "${INSTALL_DIR}/.env" <<EOF
 PORT=${PORT}
 API_PORT=${API_PORT}
 PUBLIC_IP=${PUBLIC_IP}
