@@ -8,7 +8,7 @@ set -euo pipefail
 
 REPO_URL="https://raw.githubusercontent.com/ichinya/mtproxy-installer/main"
 INSTALL_DIR="${INSTALL_DIR:-/opt/mtproxy-installer}"
-PROVIDER="${PROVIDER:-telemt}"
+PROVIDER="${1:-${PROVIDER:-telemt}}"
 PROVIDER_DIR="${INSTALL_DIR}/providers/${PROVIDER}"
 DATA_DIR="${PROVIDER_DIR}/data"
 
@@ -166,11 +166,11 @@ EOF
 get_telemt_link() {
     local url="http://127.0.0.1:${API_PORT}/v1/health"
     local attempt
-
+    
     for attempt in $(seq 1 30); do
         if curl -fsS "${url}" >/dev/null 2>&1; then
             curl -fsS "http://127.0.0.1:${API_PORT}/v1/users" 2>/dev/null | \
-                tr -d '\n' | sed -n 's/.*"tls":\["\([^"]*\)"\].*/\1/p' | head -n1
+            tr -d '\n' | sed -n 's/.*"tls":\["\([^"]*\)"\].*/\1/p' | head -n1
             return 0
         fi
         sleep 2
@@ -183,7 +183,8 @@ get_telemt_link() {
 # =============================================================================
 
 write_mtg_env() {
-    cat > "${PROVIDER_DIR}/.env" <<EOF
+    # Root .env for docker compose
+    cat > "${INSTALL_DIR}/.env" <<EOF
 PORT=${PORT}
 PUBLIC_IP=${PUBLIC_IP}
 MTG_IMAGE=${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}
@@ -252,7 +253,7 @@ setup_provider() {
     mkdir -p "${PROVIDER_DIR}" "${DATA_DIR}"
     [ "${PROVIDER}" = "telemt" ] && mkdir -p "${DATA_DIR}/cache" "${DATA_DIR}/tlsfront"
     chown -R 65532:65532 "${DATA_DIR}"
-
+    
     backup_if_exists "${INSTALL_DIR}/docker-compose.yml"
     backup_if_exists "${PROVIDER_DIR}/.env"
     backup_if_exists "${PROVIDER_DIR}/telemt.toml"
@@ -265,12 +266,12 @@ write_provider_files() {
             write_telemt_compose
             write_telemt_env
             write_telemt_config
-            ;;
+        ;;
         mtg)
             write_mtg_compose
             write_mtg_env
             write_mtg_config
-            ;;
+        ;;
     esac
 }
 
@@ -292,25 +293,25 @@ print_info() {
     log "Public endpoint: ${PUBLIC_IP}:${PORT}"
     log "Secret: ${SECRET}"
     log ""
-
+    
     [ -n "${PROXY_LINK:-}" ] && { log "Proxy link:"; log "${PROXY_LINK}"; log ""; }
-
+    
     case "${PROVIDER}" in
         telemt)
             log "API: http://127.0.0.1:${API_PORT}/v1/health"
             log "Config: ${PROVIDER_DIR}/telemt.toml"
             log ""
             log_fix "Telegram voice calls are not guaranteed over MTProto proxy."
-            ;;
+        ;;
         mtg)
             log "Config: ${PROVIDER_DIR}/mtg.conf"
             log ""
             log_fix "mtg v2 does not support ad_tag."
             log_fix "mtg has no HTTP API for automatic link extraction."
             log_fix "Telegram voice calls are not guaranteed over MTProto proxy."
-            ;;
+        ;;
     esac
-
+    
     log ""
     log "Logs: docker compose -f ${INSTALL_DIR}/docker-compose.yml logs -f ${PROVIDER}"
 }
@@ -323,24 +324,24 @@ main() {
     require_root
     validate_provider
     ensure_base_tools
-
+    
     log "================================"
     log "MTProxy Installer"
     log "================================"
     log "Provider: ${PROVIDER}"
-
+    
     PUBLIC_IP="${PUBLIC_IP:-$(curl -fsSL https://api.ipify.org)}"
     SECRET="${SECRET:-$(generate_secret)}"
-
+    
     setup_provider
     write_provider_files
-
+    
     log "Starting ${PROVIDER}..."
     docker compose -f "${INSTALL_DIR}/docker-compose.yml" --project-directory "${INSTALL_DIR}" --env-file "${INSTALL_DIR}/.env" up -d
-
+    
     sleep 3
     PROXY_LINK="$(get_proxy_link)" || true
-
+    
     print_info
 }
 
