@@ -6,6 +6,7 @@ set -euo pipefail
 # Configuration
 # =============================================================================
 
+REPO_URL="https://raw.githubusercontent.com/ichinya/mtproxy-installer/main"
 INSTALL_DIR="${INSTALL_DIR:-/opt/mtproxy-installer}"
 PROVIDER="${PROVIDER:-telemt}"
 PROVIDER_DIR="${INSTALL_DIR}/providers/${PROVIDER}"
@@ -60,6 +61,15 @@ generate_secret() {
         mtg)    printf 'dd%s\n' "$(openssl rand -hex 16)" ;;
         *)      die "Unknown provider: ${PROVIDER}" ;;
     esac
+}
+
+download_provider_file() {
+    local file="$1"
+    local dest="$2"
+    local url="${REPO_URL}/providers/${PROVIDER}/${file}"
+
+    log "Downloading ${file}..."
+    curl -fsSL "${url}" -o "${dest}" || die "Failed to download ${file}"
 }
 
 # =============================================================================
@@ -129,20 +139,20 @@ EOF
 }
 
 write_telemt_compose() {
-    cat > "${INSTALL_DIR}/docker-compose.yml" <<'EOF'
+    cat > "${INSTALL_DIR}/docker-compose.yml" <<EOF
 services:
   telemt:
-    image: ${TELEMT_IMAGE}
+    image: \${TELEMT_IMAGE}
     container_name: telemt
     restart: unless-stopped
     environment:
-      RUST_LOG: ${RUST_LOG}
+      RUST_LOG: \${RUST_LOG}
     volumes:
       - ./providers/telemt/telemt.toml:/etc/telemt.toml:ro
       - ./providers/telemt/data:/var/lib/telemt
     ports:
-      - "${PORT}:443/tcp"
-      - "127.0.0.1:${API_PORT}:9091/tcp"
+      - "\${PORT}:443/tcp"
+      - "127.0.0.1:\${API_PORT}:9091/tcp"
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -200,19 +210,19 @@ EOF
 }
 
 write_mtg_compose() {
-    cat > "${INSTALL_DIR}/docker-compose.yml" <<'EOF'
+    cat > "${INSTALL_DIR}/docker-compose.yml" <<EOF
 services:
   mtg:
-    image: ${MTG_IMAGE}
+    image: \${MTG_IMAGE}
     container_name: mtg
     restart: unless-stopped
     environment:
-      MTG_DEBUG: ${MTG_DEBUG}
+      MTG_DEBUG: \${MTG_DEBUG}
     volumes:
       - ./providers/mtg/mtg.conf:/etc/mtg.conf:ro
       - ./providers/mtg/data:/var/lib/mtg
     ports:
-      - "${PORT}:443/tcp"
+      - "\${PORT}:443/tcp"
     security_opt:
       - no-new-privileges:true
     cap_drop:
