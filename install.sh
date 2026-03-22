@@ -2,85 +2,141 @@
 
 set -euo pipefail
 
+# =============================================================================
+# Configuration
+# =============================================================================
+
 INSTALL_DIR="${INSTALL_DIR:-/opt/mtproxy-installer}"
-PROVIDER="telemt"
+PROVIDER="${PROVIDER:-telemt}"
 PROVIDER_DIR="${INSTALL_DIR}/providers/${PROVIDER}"
 DATA_DIR="${PROVIDER_DIR}/data"
 
+# Defaults (can be overridden via environment)
 PORT="${PORT:-443}"
 API_PORT="${API_PORT:-9091}"
-TELEMT_IMAGE="${TELEMT_IMAGE:-whn0thacked/telemt-docker:latest}"
-RUST_LOG="${RUST_LOG:-info}"
 TLS_DOMAIN="${TLS_DOMAIN:-www.wikipedia.org}"
-PROXY_USER="${PROXY_USER:-main}"
 
-log() {
-    printf '%s\n' "$1"
-}
+# =============================================================================
+# Logging
+# =============================================================================
 
-log_fix() {
-    log "[FIX] $1"
-}
+log() { printf '%s\n' "$1"; }
+die() { printf 'Error: %s\n' "$1" >&2; exit 1; }
+log_fix() { log "[FIX] $1"; }
 
-die() {
-    printf 'Error: %s\n' "$1" >&2
-    exit 1
-}
+# =============================================================================
+# Prerequisites
+# =============================================================================
 
 require_root() {
     if [ "${EUID}" -ne 0 ]; then
-        die "Run as root. Example: curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo bash"
+        die "Run as root. Example: curl -fsSL .../install.sh | sudo bash"
     fi
 }
 
 ensure_apt_package() {
     local package="$1"
-
-    if dpkg -s "${package}" >/dev/null 2>&1; then
-        return 0
-    fi
-
-    apt-get update
-    apt-get install -y "${package}"
+    dpkg -s "${package}" >/dev/null 2>&1 || { apt-get update && apt-get install -y "${package}"; }
 }
 
 ensure_base_tools() {
-    if ! command -v curl >/dev/null 2>&1; then
-        ensure_apt_package curl
-    fi
-
-    if ! command -v openssl >/dev/null 2>&1; then
-        ensure_apt_package openssl
-    fi
-
-    if ! command -v docker >/dev/null 2>&1; then
-        log "Docker not found. Installing..."
-        curl -fsSL https://get.docker.com | sh
-    fi
-
-    if ! docker compose version >/dev/null 2>&1; then
-        log "Docker Compose plugin not found. Installing..."
-        ensure_apt_package docker-compose-plugin
-    fi
+    command -v curl >/dev/null 2>&1 || ensure_apt_package curl
+    command -v openssl >/dev/null 2>&1 || ensure_apt_package openssl
+    command -v docker >/dev/null 2>&1 || { log "Installing Docker..."; curl -fsSL https://get.docker.com | sh; }
+    docker compose version >/dev/null 2>&1 || ensure_apt_package docker-compose-plugin
 }
+
+# =============================================================================
+# Utils
+# =============================================================================
 
 backup_if_exists() {
-    local path="$1"
-
-    if [ -f "${path}" ]; then
-        cp "${path}" "${path}.bak.$(date +%s)"
-    fi
+    [ -f "$1" ] && cp "$1" "$1.bak.$(date +%s)"
 }
 
-write_root_compose() {
+generate_secret() {
+    case "${PROVIDER}" in
+        telemt) openssl rand -hex 16 ;;
+        mtg)    printf 'dd%s\n' "$(openssl rand -hex 16)" ;;
+        *)      die "Unknown provider: ${PROVIDER}" ;;
+    esac
+}
+
+# =============================================================================
+# Provider: telemt
+# =============================================================================
+
+write_telemt_env() {
+    cat > "${PROVIDER_DIR}/.env" <<EOF
+PORT=${PORT}
+API_PORT=${API_PORT}
+PUBLIC_IP=${PUBLIC_IP}
+TELEMT_IMAGE=${TELEMT_IMAGE:-whn0thacked/telemt-docker:latest}
+RUST_LOG=${RUST_LOG:-info}
+TLS_DOMAIN=${TLS_DOMAIN}
+PROXY_USER=${PROXY_USER:-main}
+SECRET=${SECRET}
+EOF
+}
+
+write_telemt_config() {
+    cat > "${PROVIDER_DIR}/telemt.toml" <<EOF
+[general]
+use_middle_proxy = true
+proxy_secret_path = "/var/lib/telemt/proxy-secret"
+middle_proxy_nat_ip = "${PUBLIC_IP}"
+middle_proxy_nat_probe = true
+log_level = "normal"
+
+[general.modes]
+classic = false
+secure = false
+tls = true
+
+[general.links]
+show = "*"
+public_host = "${PUBLIC_IP}"
+public_port = ${PORT}
+
+[server]
+port = 443
+listen_addr_ipv4 = "0.0.0.0"
+listen_addr_ipv6 = "::"
+proxy_protocol = false
+metrics_whitelist = ["127.0.0.1/32", "::1/128"]
+
+[server.api]
+enabled = true
+listen = "0.0.0.0:${API_PORT}"
+whitelist = []
+read_only = true
+
+[[server.listeners]]
+ip = "0.0.0.0"
+announce = "${PUBLIC_IP}"
+
+[censorship]
+tls_domain = "${TLS_DOMAIN}"
+mask = true
+mask_port = 443
+fake_cert_len = 2048
+tls_emulation = false
+tls_front_dir = "/var/lib/telemt/tlsfront"
+
+[access.users]
+"${PROXY_USER:-main}" = "${SECRET}"
+EOF
+}
+
+write_telemt_compose() {
     cat > "${INSTALL_DIR}/docker-compose.yml" <<'EOF'
 services:
   telemt:
-    image: ${TELEMT_IMAGE:-whn0thacked/telemt-docker:latest}
+    image: ${TELEMT_IMAGE}
     container_name: telemt
     restart: unless-stopped
     environment:
-      RUST_LOG: ${RUST_LOG:-info}
+      RUST_LOG: ${RUST_LOG}
     volumes:
       - ./providers/telemt/telemt.toml:/etc/telemt.toml:ro
       - ./providers/telemt/data:/var/lib/telemt
@@ -103,21 +159,60 @@ services:
 EOF
 }
 
-write_provider_compose() {
-    cat > "${PROVIDER_DIR}/docker-compose.yml" <<'EOF'
+get_telemt_link() {
+    local url="http://127.0.0.1:${API_PORT}/v1/health"
+    local attempt
+
+    for attempt in $(seq 1 30); do
+        if curl -fsS "${url}" >/dev/null 2>&1; then
+            curl -fsS "http://127.0.0.1:${API_PORT}/v1/users" 2>/dev/null | \
+                tr -d '\n' | sed -n 's/.*"tls":\["\([^"]*\)"\].*/\1/p' | head -n1
+            return 0
+        fi
+        sleep 2
+    done
+    return 1
+}
+
+# =============================================================================
+# Provider: mtg
+# =============================================================================
+
+write_mtg_env() {
+    cat > "${PROVIDER_DIR}/.env" <<EOF
+PORT=${PORT}
+PUBLIC_IP=${PUBLIC_IP}
+MTG_IMAGE=${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}
+MTG_DEBUG=${MTG_DEBUG:-info}
+TLS_DOMAIN=${TLS_DOMAIN}
+SECRET=${SECRET}
+EOF
+}
+
+write_mtg_config() {
+    cat > "${PROVIDER_DIR}/mtg.conf" <<EOF
+bind = "0.0.0.0:443"
+advertise = "${PUBLIC_IP}:${PORT}"
+secret = "${SECRET}"
+tls-domain = "${TLS_DOMAIN}"
+debug = "${MTG_DEBUG:-info}"
+EOF
+}
+
+write_mtg_compose() {
+    cat > "${INSTALL_DIR}/docker-compose.yml" <<'EOF'
 services:
-  telemt:
-    image: ${TELEMT_IMAGE:-whn0thacked/telemt-docker:latest}
-    container_name: telemt
+  mtg:
+    image: ${MTG_IMAGE}
+    container_name: mtg
     restart: unless-stopped
     environment:
-      RUST_LOG: ${RUST_LOG:-info}
+      MTG_DEBUG: ${MTG_DEBUG}
     volumes:
-      - ./telemt.toml:/etc/telemt.toml:ro
-      - ./data:/var/lib/telemt
+      - ./providers/mtg/mtg.conf:/etc/mtg.conf:ro
+      - ./providers/mtg/data:/var/lib/mtg
     ports:
       - "${PORT}:443/tcp"
-      - "127.0.0.1:${API_PORT}:9091/tcp"
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -134,165 +229,115 @@ services:
 EOF
 }
 
-write_env_file() {
-    cat > "${INSTALL_DIR}/.env" <<EOF
-PORT=${PORT}
-API_PORT=${API_PORT}
-TELEMT_IMAGE=${TELEMT_IMAGE}
-RUST_LOG=${RUST_LOG}
-EOF
-
-    cat > "${PROVIDER_DIR}/.env" <<EOF
-PORT=${PORT}
-API_PORT=${API_PORT}
-TELEMT_IMAGE=${TELEMT_IMAGE}
-RUST_LOG=${RUST_LOG}
-EOF
+get_mtg_link() {
+    printf 'tg://proxy?server=%s&port=%s&secret=%s\n' "${PUBLIC_IP}" "${PORT}" "${SECRET}"
 }
 
-write_telemt_config() {
-    local public_ip="$1"
-    local secret="$2"
+# =============================================================================
+# Provider Dispatcher
+# =============================================================================
 
-    cat > "${PROVIDER_DIR}/telemt.toml" <<EOF
-[general]
-use_middle_proxy = true
-proxy_secret_path = "/var/lib/telemt/proxy-secret"
-middle_proxy_nat_ip = "${public_ip}"
-middle_proxy_nat_probe = true
-log_level = "normal"
-
-[general.modes]
-classic = false
-secure = false
-tls = true
-
-[general.links]
-show = "*"
-public_host = "${public_ip}"
-public_port = ${PORT}
-
-[server]
-port = 443
-listen_addr_ipv4 = "0.0.0.0"
-listen_addr_ipv6 = "::"
-proxy_protocol = false
-metrics_whitelist = ["127.0.0.1/32", "::1/128"]
-
-[server.api]
-enabled = true
-listen = "0.0.0.0:9091"
-whitelist = []
-read_only = true
-
-[[server.listeners]]
-ip = "0.0.0.0"
-announce = "${public_ip}"
-
-[censorship]
-tls_domain = "${TLS_DOMAIN}"
-mask = true
-mask_port = 443
-fake_cert_len = 2048
-tls_emulation = false
-tls_front_dir = "/var/lib/telemt/tlsfront"
-
-[access.users]
-"${PROXY_USER}" = "${secret}"
-EOF
+validate_provider() {
+    case "${PROVIDER}" in
+        telemt|mtg) return 0 ;;
+        *) die "Unsupported provider: ${PROVIDER}. Supported: telemt, mtg" ;;
+    esac
 }
 
-wait_for_api() {
-    local url="http://127.0.0.1:${API_PORT}/v1/health"
-    local attempt
-
-    for attempt in $(seq 1 60); do
-        if curl -fsS "${url}" >/dev/null 2>&1; then
-            return 0
-        fi
-
-        sleep 2
-    done
-
-    return 1
-}
-
-extract_proxy_link() {
-    local users_json="$1"
-
-    printf '%s' "${users_json}" |
-        tr -d '\n' |
-        sed -n 's/.*"tls":\["\([^"]*\)"\].*/\1/p' |
-        head -n 1
-}
-
-main() {
-    local secret
-    local public_ip
-    local users_json
-    local proxy_link=""
-
-    require_root
-    ensure_base_tools
-
-    log "Preparing install directory: ${INSTALL_DIR}"
-    mkdir -p "${PROVIDER_DIR}" "${DATA_DIR}/cache" "${DATA_DIR}/tlsfront"
+setup_provider() {
+    mkdir -p "${PROVIDER_DIR}" "${DATA_DIR}"
+    [ "${PROVIDER}" = "telemt" ] && mkdir -p "${DATA_DIR}/cache" "${DATA_DIR}/tlsfront"
     chown -R 65532:65532 "${DATA_DIR}"
 
     backup_if_exists "${INSTALL_DIR}/docker-compose.yml"
-    backup_if_exists "${INSTALL_DIR}/.env"
-    backup_if_exists "${PROVIDER_DIR}/docker-compose.yml"
     backup_if_exists "${PROVIDER_DIR}/.env"
     backup_if_exists "${PROVIDER_DIR}/telemt.toml"
+    backup_if_exists "${PROVIDER_DIR}/mtg.conf"
+}
 
-    secret="$(openssl rand -hex 16)"
-    public_ip="$(curl -fsSL https://api.ipify.org)"
+write_provider_files() {
+    case "${PROVIDER}" in
+        telemt)
+            write_telemt_compose
+            write_telemt_env
+            write_telemt_config
+            ;;
+        mtg)
+            write_mtg_compose
+            write_mtg_env
+            write_mtg_config
+            ;;
+    esac
+}
 
-    write_root_compose
-    write_provider_compose
-    write_env_file
-    write_telemt_config "${public_ip}" "${secret}"
+get_proxy_link() {
+    case "${PROVIDER}" in
+        telemt) get_telemt_link ;;
+        mtg)    get_mtg_link ;;
+    esac
+}
 
-    log "Starting Telemt..."
-    docker compose -f "${INSTALL_DIR}/docker-compose.yml" --project-directory "${INSTALL_DIR}" --env-file "${INSTALL_DIR}/.env" up -d
-
-    if wait_for_api; then
-        users_json="$(curl -fsS "http://127.0.0.1:${API_PORT}/v1/users" || true)"
-        if [ -n "${users_json}" ]; then
-            proxy_link="$(extract_proxy_link "${users_json}")"
-        fi
-    fi
-
+print_info() {
     log ""
     log "=============================="
-    log "Telemt installed"
+    log "${PROVIDER} installed"
     log "=============================="
     log ""
     log "Install dir: ${INSTALL_DIR}"
     log "Provider: ${PROVIDER}"
-    log "Public endpoint: ${public_ip}:${PORT}"
-    log "Image: ${TELEMT_IMAGE}"
-    log "TLS domain: ${TLS_DOMAIN}"
-    log "User: ${PROXY_USER}"
-    log "Secret: ${secret}"
+    log "Public endpoint: ${PUBLIC_IP}:${PORT}"
+    log "Secret: ${SECRET}"
     log ""
 
-    if [ -n "${proxy_link}" ]; then
-        log "Proxy link:"
-        log "${proxy_link}"
-        log ""
-    else
-        log "Proxy link was not extracted automatically yet."
-        log "Try after a minute: curl -fsS http://127.0.0.1:${API_PORT}/v1/users"
-        log ""
-    fi
+    [ -n "${PROXY_LINK:-}" ] && { log "Proxy link:"; log "${PROXY_LINK}"; log ""; }
 
-    log "Local Telemt API: http://127.0.0.1:${API_PORT}/v1/health"
-    log "Config: ${PROVIDER_DIR}/telemt.toml"
-    log "Logs: docker compose -f ${INSTALL_DIR}/docker-compose.yml --project-directory ${INSTALL_DIR} --env-file ${INSTALL_DIR}/.env logs -f telemt"
+    case "${PROVIDER}" in
+        telemt)
+            log "API: http://127.0.0.1:${API_PORT}/v1/health"
+            log "Config: ${PROVIDER_DIR}/telemt.toml"
+            log ""
+            log_fix "Telegram voice calls are not guaranteed over MTProto proxy."
+            ;;
+        mtg)
+            log "Config: ${PROVIDER_DIR}/mtg.conf"
+            log ""
+            log_fix "mtg v2 does not support ad_tag."
+            log_fix "mtg has no HTTP API for automatic link extraction."
+            log_fix "Telegram voice calls are not guaranteed over MTProto proxy."
+            ;;
+    esac
+
     log ""
-    log_fix "Telegram voice calls are not guaranteed over MTProto proxy / Telemt deployments."
-    log_fix "Treat text, media, API health, and proxy link issuance as the supported success criteria."
+    log "Logs: docker compose -f ${INSTALL_DIR}/docker-compose.yml logs -f ${PROVIDER}"
+}
+
+# =============================================================================
+# Main
+# =============================================================================
+
+main() {
+    require_root
+    validate_provider
+    ensure_base_tools
+
+    log "================================"
+    log "MTProxy Installer"
+    log "================================"
+    log "Provider: ${PROVIDER}"
+
+    PUBLIC_IP="${PUBLIC_IP:-$(curl -fsSL https://api.ipify.org)}"
+    SECRET="${SECRET:-$(generate_secret)}"
+
+    setup_provider
+    write_provider_files
+
+    log "Starting ${PROVIDER}..."
+    docker compose -f "${INSTALL_DIR}/docker-compose.yml" --project-directory "${INSTALL_DIR}" up -d
+
+    sleep 3
+    PROXY_LINK="$(get_proxy_link)" || true
+
+    print_info
 }
 
 main "$@"

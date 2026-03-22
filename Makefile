@@ -9,14 +9,13 @@ MAKEFLAGS += --no-builtin-rules
 
 PROJECT ?= mtproxy-installer
 PROVIDER ?= telemt
-DOCKER_SERVICE ?= telemt
+DOCKER_SERVICE ?= $(PROVIDER)
 
 ENV_FILE ?= .env
 ROOT_COMPOSE_FILE ?= docker-compose.yml
 PROVIDER_DIR ?= providers/$(PROVIDER)
 PROVIDER_ENV_FILE ?= $(PROVIDER_DIR)/.env
 PROVIDER_COMPOSE_FILE ?= $(PROVIDER_DIR)/docker-compose.yml
-TELEMT_CONFIG ?= $(PROVIDER_DIR)/telemt.toml
 DATA_DIR ?= $(PROVIDER_DIR)/data
 
 DOCKER ?= docker
@@ -46,24 +45,23 @@ help: ## Show available targets
 install: setup ## Prepare local example configuration and data directories
 
 setup: ## Copy example env/config files when they are missing
-	mkdir -p "$(DATA_DIR)/cache" "$(DATA_DIR)/tlsfront"
+	mkdir -p "$(DATA_DIR)"
+	if [ "$(PROVIDER)" = "telemt" ]; then mkdir -p "$(DATA_DIR)/cache" "$(DATA_DIR)/tlsfront"; fi
 	if [ ! -f "$(ENV_FILE)" ]; then cp .env.example "$(ENV_FILE)"; fi
 	if [ ! -f "$(PROVIDER_ENV_FILE)" ]; then cp "$(PROVIDER_DIR)/.env.example" "$(PROVIDER_ENV_FILE)"; fi
-	if [ ! -f "$(TELEMT_CONFIG)" ]; then cp "$(PROVIDER_DIR)/telemt.toml.example" "$(TELEMT_CONFIG)"; fi
-	printf 'Prepared %s (%s, %s)\n' "$(PROJECT)" "$(VERSION)" "$(COMMIT)"
+	printf 'Prepared %s (provider=%s, %s, %s)\n' "$(PROJECT)" "$(PROVIDER)" "$(VERSION)" "$(COMMIT)"
 
 ##@ Validation
 build: compose-check ## Validate root and provider Docker Compose manifests
 	printf 'Compose manifests are valid for %s at %s\n' "$(PROJECT)" "$(BUILD_TIME)"
 
-test: compose-check ## Run shell and configuration smoke checks
+test: ## Run shell and configuration smoke checks
 	bash -n install.sh
 	bash -n uninstall.sh
 	bash -n update.sh
 	test -f .env.example
 	test -f "$(PROVIDER_DIR)/.env.example"
-	test -f "$(PROVIDER_DIR)/telemt.toml.example"
-	printf 'Smoke checks passed for %s\n' "$(PROJECT)"
+	printf 'Smoke checks passed for %s (provider=%s)\n' "$(PROJECT)" "$(PROVIDER)"
 
 lint: ## Run shell linting for installer scripts
 	command -v "$(SHELLCHECK)" >/dev/null 2>&1 || { printf 'shellcheck is required for lint\n' >&2; exit 1; }
@@ -85,27 +83,35 @@ compose-check: ## Render root and provider compose files with current env files
 	$(PROVIDER_COMPOSE_CMD) config >/dev/null
 
 ##@ Local Runtime
-dev: docker-dev ## Start the local Telemt stack
+dev: docker-dev ## Start the local provider stack
 
-health: ## Query the local Telemt health endpoint
+health: ## Query the local provider health endpoint (telemt only)
+	@if [ "$(PROVIDER)" != "telemt" ]; then \
+		printf 'health endpoint only available for telemt provider\n' >&2; \
+		exit 1; \
+	fi
 	curl -fsS "http://127.0.0.1:$${API_PORT:-9091}/v1/health"
 
-proxy-link: ## Print raw Telemt user/link payload from the local API
+proxy-link: ## Print proxy link from the local API (telemt only)
+	@if [ "$(PROVIDER)" != "telemt" ]; then \
+		printf 'proxy-link only available for telemt provider (mtg has no HTTP API)\n' >&2; \
+		exit 1; \
+	fi
 	curl -fsS "http://127.0.0.1:$${API_PORT:-9091}/v1/users"
 
-clean: ## Remove local Telemt cache directories
+clean: ## Remove local provider cache directories
 	rm -rf "$(DATA_DIR)/cache" "$(DATA_DIR)/tlsfront"
 
 ##@ Docker
-docker-build: ## Pull the configured Telemt image from the registry
+docker-build: ## Pull the configured provider image from the registry
 	$(ROOT_COMPOSE_CMD) pull "$(DOCKER_SERVICE)"
 
-docker-run: docker-dev ## Start the Telemt container stack
+docker-run: docker-dev ## Start the provider container stack
 
-docker-stop: ## Stop running Telemt containers without removing them
+docker-stop: ## Stop running provider containers without removing them
 	$(ROOT_COMPOSE_CMD) stop
 
-docker-logs: ## Tail Telemt container logs
+docker-logs: ## Tail provider container logs
 	$(ROOT_COMPOSE_CMD) logs -f "$(DOCKER_SERVICE)"
 
 docker-ps: ## Show Docker Compose service status

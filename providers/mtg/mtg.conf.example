@@ -1,0 +1,23 @@
+# mtg configuration
+# See: https://github.com/9seconds/mtg
+
+# Bind address (default: 0.0.0.0:443)
+bind = "0.0.0.0:443"
+
+# Public endpoint (replace with your server IP)
+# Format: IP:PORT or DOMAIN:PORT
+advertise = "203.0.113.10:443"
+
+# FakeTLS secret (generate with: mtg generate-secret tls <domain>)
+# This is an EXAMPLE secret - replace with your own!
+secret = "dd00000000000000000000000000000000"
+
+# TLS domain for FakeTLS (mimic legitimate HTTPS traffic)
+tls-domain = "www.google.com"
+
+# Debug level: error, warn, info, debug
+debug = "info"
+
+# Access list (optional)
+# allow = []
+# deny = []

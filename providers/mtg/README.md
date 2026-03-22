@@ -3,29 +3,57 @@
 ## Базовый upstream
 
 - Engine: `https://github.com/9seconds/mtg`
+- Docker image: `ghcr.io/9seconds/mtg:latest`
 
 ## Текущий статус
 
-Это planned alt-provider.
+Это alt-provider, доступный через selector.
 
-Он еще не реализован в installer, но заранее зафиксирован как важный путь для будущего selector-а.
+Файлы провайдера:
+- `docker-compose.yml` — runtime определение
+- `.env.example` — переменные окружения
+- `mtg.conf.example` — шаблон конфигурации
+
+## Как использовать
+
+```bash
+# Установка с mtg вместо telemt
+PROVIDER=mtg curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo bash
+```
+
+## Генерация секрета
+
+mtg использует FakeTLS секреты специального формата:
+
+```bash
+# Генерация секрета с TLS доменом
+docker run --rm ghcr.io/9seconds/mtg:latest generate-secret tls www.google.com
+```
 
 ## Почему он нам нужен
 
-- это один из самых известных и распространенных MTProto/FakeTLS engines в старых и текущих инструкциях;
+- это один из самых известных и распространенных MTProto/FakeTLS engines;
 - он хорошо подходит для простого Docker deployment;
 - он полезен как второй provider с другим operational profile.
 
-## Что нужно реализовать позже
+## Отличия от telemt
 
-- provider-specific compose path;
-- env/config template;
-- генерацию FakeTLS secret;
-- provider-specific docs по reverse proxy;
-- test matrix по media/CDN и нестандартным портам.
+| Характеристика | mtg | telemt |
+|----------------|-----|--------|
+| HTTP API | ❌ Нет | ✅ `/v1/users`, `/v1/health` |
+| Генерация link | ❌ Вручную | ✅ Автоматически |
+| ad_tag | ❌ Нет в v2 | ⚠️ Проверять |
+| Secret формат | FakeTLS (спец.) | hex (32 символа) |
 
 ## Что важно помнить
 
 - `mtg v2` нельзя считать provider-ом с полной поддержкой `ad_tag`;
 - behavior по media/CDN надо проверять отдельно;
+- нет HTTP API для автоматического извлечения proxy link;
 - описывать его нужно как отдельный компромиссный путь, а не как drop-in replacement для `telemt`.
+
+## Reverse Proxy
+
+mtg поддерживает работу через reverse proxy, но поведение отличается от telemt:
+- `proxy_protocol` может работать иначе;
+- тестировать на конкретной конфигурации.

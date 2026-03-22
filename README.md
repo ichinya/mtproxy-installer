@@ -1,16 +1,19 @@
 # mtproxy-installer
 
-> Bash-first installer для Telegram MTProto proxy deployments, где `telemt` сейчас является основным default path.
+> Bash-first installer для Telegram MTProto proxy deployments с поддержкой выбора провайдера.
 
-`mtproxy-installer` помогает быстро поднять Telemt-based MTProto proxy через Docker Compose и не терять operational
-context: стратегию по providers, выбор upstream-репозиториев, reverse-proxy topology и практические troubleshooting
-notes. Текущий основной путь - `providers/telemt`, а `mtg` и официальный MTProxy пока остаются запланированными
-вариантами.
+`mtproxy-installer` помогает быстро поднять MTProto proxy через Docker Compose. Текущие поддерживаемые провайдеры:
+- **telemt** (default) — `An0nX/telemt-docker` + `telemt/telemt` engine
+- **mtg** — `9seconds/mtg` FakeTLS engine
 
 ## Быстрый старт
 
 ```bash
+# telemt (default)
 curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo bash
+
+# mtg
+curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo env PROVIDER=mtg bash
 ```
 
 ## Почему это полезно
