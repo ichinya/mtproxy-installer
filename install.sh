@@ -349,7 +349,8 @@ main() {
     write_provider_files
     
     log "Starting ${PROVIDER}..."
-    docker compose -f "${INSTALL_DIR}/docker-compose.yml" --project-directory "${INSTALL_DIR}" --env-file "${INSTALL_DIR}/.env" up -d
+    docker compose -f "${INSTALL_DIR}/docker-compose.yml" --project-directory "${INSTALL_DIR}" --env-file "${INSTALL_DIR}/.env" down || true
+    docker compose -f "${INSTALL_DIR}/docker-compose.yml" --project-directory "${INSTALL_DIR}" --env-file "${INSTALL_DIR}/.env" up -d --force-recreate
     
     sleep 3
     PROXY_LINK="$(get_proxy_link)" || true
