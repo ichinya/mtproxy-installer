@@ -333,6 +333,19 @@ main() {
     PUBLIC_IP="${PUBLIC_IP:-$(curl -fsSL https://api.ipify.org)}"
     SECRET="${SECRET:-$(generate_secret)}"
     
+    # Set provider-specific defaults
+    case "${PROVIDER}" in
+        telemt)
+            export TELEMT_IMAGE="${TELEMT_IMAGE:-whn0thacked/telemt-docker:latest}"
+            export RUST_LOG="${RUST_LOG:-info}"
+            ;;
+        mtg)
+            export MTG_IMAGE="${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}"
+            export MTG_DEBUG="${MTG_DEBUG:-info}"
+            ;;
+    esac
+    export PORT PUBLIC_IP SECRET TLS_DOMAIN
+    
     setup_provider
     write_provider_files
     
