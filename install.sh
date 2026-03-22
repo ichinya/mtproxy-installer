@@ -221,7 +221,7 @@ services:
     environment:
       MTG_DEBUG: ${MTG_DEBUG}
     volumes:
-      - ./providers/mtg/mtg.conf:/etc/mtg.conf:ro
+      - ./providers/mtg/mtg.conf:/config.toml:ro
       - ./providers/mtg/data:/var/lib/mtg
     ports:
       - "${PORT}:3128/tcp"
