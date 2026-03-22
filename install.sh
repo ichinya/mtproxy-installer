@@ -9,11 +9,12 @@ set -euo pipefail
 REPO_URL="https://raw.githubusercontent.com/ichinya/mtproxy-installer/main"
 INSTALL_DIR="${INSTALL_DIR:-/opt/mtproxy-installer}"
 PROVIDER="${1:-${PROVIDER:-telemt}}"
+# PORT can be passed as second positional arg or via environment
+PORT="${2:-${PORT:-443}}"
 PROVIDER_DIR="${INSTALL_DIR}/providers/${PROVIDER}"
 DATA_DIR="${PROVIDER_DIR}/data"
 
 # Defaults (can be overridden via environment)
-PORT="${PORT:-443}"
 API_PORT="${API_PORT:-9091}"
 TLS_DOMAIN="${TLS_DOMAIN:-www.wikipedia.org}"
 
