@@ -60,9 +60,16 @@ backup_if_exists() {
 
 generate_secret() {
     case "${PROVIDER}" in
-        telemt) openssl rand -hex 16 ;;
-        mtg)    printf 'ee%s%s\n' "$(openssl rand -hex 16)" "${TLS_DOMAIN}" ;;
-        *)      die "Unknown provider: ${PROVIDER}" ;;
+        telemt)
+            openssl rand -hex 16
+        ;;
+        mtg)
+            local image="${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}"
+            docker run --rm "${image}" generate-secret "${TLS_DOMAIN}"
+        ;;
+        *)
+            die "Unknown provider: ${PROVIDER}"
+        ;;
     esac
 }
 
