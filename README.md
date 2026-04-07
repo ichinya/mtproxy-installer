@@ -81,7 +81,7 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/inst
 | Скрипт         | Описание                                          |
 |----------------|---------------------------------------------------|
 | `install.sh`   | Установка с нуля                                  |
-| `update.sh`    | Обновление образа и перезапуск (сохраняет конфиг) |
+| `update.sh`    | Обновление provider image с сохранением secret/config и rollback при неуспехе |
 | `uninstall.sh` | Удаление контейнера, образа и данных              |
 
 ```bash

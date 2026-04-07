@@ -13,6 +13,8 @@ PROVIDER="${1:-${PROVIDER:-telemt}}"
 PORT="${2:-${PORT:-443}}"
 PROVIDER_DIR="${INSTALL_DIR}/providers/${PROVIDER}"
 DATA_DIR="${PROVIDER_DIR}/data"
+DEFAULT_TELEMT_IMAGE_SOURCE="whn0thacked/telemt-docker:latest"
+DEFAULT_MTG_IMAGE_SOURCE="ghcr.io/9seconds/mtg:latest"
 
 # Defaults (can be overridden via environment)
 API_PORT="${API_PORT:-9091}"
@@ -58,13 +60,57 @@ backup_if_exists() {
     fi
 }
 
+set_env_value() {
+    local file="$1"
+    local key="$2"
+    local value="$3"
+    local tmp
+
+    tmp="$(mktemp)"
+
+    if [ -f "${file}" ]; then
+        awk -v key="${key}" -v value="${value}" '
+            BEGIN { updated = 0 }
+            index($0, key "=") == 1 {
+                print key "=" value
+                updated = 1
+                next
+            }
+            { print }
+            END {
+                if (!updated) {
+                    print key "=" value
+                }
+            }
+        ' "${file}" > "${tmp}"
+    else
+        printf '%s=%s\n' "${key}" "${value}" > "${tmp}"
+    fi
+
+    mv "${tmp}" "${file}"
+}
+
+resolve_image_ref() {
+    local source_ref="$1"
+    local pinned_ref
+
+    docker pull "${source_ref}" >/dev/null
+    pinned_ref="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${source_ref}" 2>/dev/null | sed '/^$/d' | head -n1 || true)"
+
+    if [ -n "${pinned_ref}" ]; then
+        printf '%s\n' "${pinned_ref}"
+    else
+        printf '%s\n' "${source_ref}"
+    fi
+}
+
 generate_secret() {
     case "${PROVIDER}" in
         telemt)
             openssl rand -hex 16
         ;;
         mtg)
-            local image="${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}"
+            local image="${MTG_IMAGE_SOURCE:-${MTG_IMAGE:-${DEFAULT_MTG_IMAGE_SOURCE}}}"
             docker run --rm "${image}" generate-secret "${TLS_DOMAIN}"
         ;;
         *)
@@ -80,10 +126,12 @@ generate_secret() {
 write_telemt_env() {
     # Root .env for docker compose
     cat > "${INSTALL_DIR}/.env" <<EOF
+PROVIDER=telemt
 PORT=${PORT}
 API_PORT=${API_PORT}
 PUBLIC_IP=${PUBLIC_IP}
-TELEMT_IMAGE=${TELEMT_IMAGE:-whn0thacked/telemt-docker:latest}
+TELEMT_IMAGE_SOURCE=${TELEMT_IMAGE_SOURCE:-${DEFAULT_TELEMT_IMAGE_SOURCE}}
+TELEMT_IMAGE=${TELEMT_IMAGE:-${TELEMT_IMAGE_SOURCE:-${DEFAULT_TELEMT_IMAGE_SOURCE}}}
 RUST_LOG=${RUST_LOG:-info}
 TLS_DOMAIN=${TLS_DOMAIN}
 PROXY_USER=${PROXY_USER:-main}
@@ -193,9 +241,11 @@ get_telemt_link() {
 write_mtg_env() {
     # Root .env for docker compose
     cat > "${INSTALL_DIR}/.env" <<EOF
+PROVIDER=mtg
 PORT=${PORT}
 PUBLIC_IP=${PUBLIC_IP}
-MTG_IMAGE=${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}
+MTG_IMAGE_SOURCE=${MTG_IMAGE_SOURCE:-${DEFAULT_MTG_IMAGE_SOURCE}}
+MTG_IMAGE=${MTG_IMAGE:-${MTG_IMAGE_SOURCE:-${DEFAULT_MTG_IMAGE_SOURCE}}}
 MTG_DEBUG=${MTG_DEBUG:-info}
 TLS_DOMAIN=${TLS_DOMAIN}
 SECRET=${SECRET}
@@ -247,8 +297,35 @@ validate_mtg_config() {
     log_fix "Validating generated mtg config with mtg access."
     docker run --rm \
         -v "${PROVIDER_DIR}/mtg.conf:/config.toml:ro" \
-        "${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}" \
+        "${MTG_IMAGE}" \
         access /config.toml >/dev/null
+}
+
+prepare_provider_image() {
+    local env_file="${INSTALL_DIR}/.env"
+    local source_ref
+    local pinned_ref
+
+    case "${PROVIDER}" in
+        telemt)
+            source_ref="${TELEMT_IMAGE_SOURCE:-${TELEMT_IMAGE:-${DEFAULT_TELEMT_IMAGE_SOURCE}}}"
+            log "Pulling Telemt image source: ${source_ref}"
+            pinned_ref="$(resolve_image_ref "${source_ref}")"
+            export TELEMT_IMAGE_SOURCE="${source_ref}"
+            export TELEMT_IMAGE="${pinned_ref}"
+            set_env_value "${env_file}" "TELEMT_IMAGE_SOURCE" "${TELEMT_IMAGE_SOURCE}"
+            set_env_value "${env_file}" "TELEMT_IMAGE" "${TELEMT_IMAGE}"
+        ;;
+        mtg)
+            source_ref="${MTG_IMAGE_SOURCE:-${MTG_IMAGE:-${DEFAULT_MTG_IMAGE_SOURCE}}}"
+            log "Pulling mtg image source: ${source_ref}"
+            pinned_ref="$(resolve_image_ref "${source_ref}")"
+            export MTG_IMAGE_SOURCE="${source_ref}"
+            export MTG_IMAGE="${pinned_ref}"
+            set_env_value "${env_file}" "MTG_IMAGE_SOURCE" "${MTG_IMAGE_SOURCE}"
+            set_env_value "${env_file}" "MTG_IMAGE" "${MTG_IMAGE}"
+        ;;
+    esac
 }
 
 urlencode() {
@@ -368,24 +445,25 @@ main() {
     log "================================"
     log "Provider: ${PROVIDER}"
     
-    PUBLIC_IP="${PUBLIC_IP:-$(curl -fsSL https://api.ipify.org)}"
-    SECRET="${SECRET:-$(generate_secret)}"
-    
     # Set provider-specific defaults
     case "${PROVIDER}" in
         telemt)
-            export TELEMT_IMAGE="${TELEMT_IMAGE:-whn0thacked/telemt-docker:latest}"
+            export TELEMT_IMAGE_SOURCE="${TELEMT_IMAGE_SOURCE:-${TELEMT_IMAGE:-${DEFAULT_TELEMT_IMAGE_SOURCE}}}"
             export RUST_LOG="${RUST_LOG:-info}"
         ;;
         mtg)
-            export MTG_IMAGE="${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}"
+            export MTG_IMAGE_SOURCE="${MTG_IMAGE_SOURCE:-${MTG_IMAGE:-${DEFAULT_MTG_IMAGE_SOURCE}}}"
             export MTG_DEBUG="${MTG_DEBUG:-info}"
         ;;
     esac
+    
+    PUBLIC_IP="${PUBLIC_IP:-$(curl -fsSL https://api.ipify.org)}"
+    SECRET="${SECRET:-$(generate_secret)}"
     export PORT PUBLIC_IP SECRET TLS_DOMAIN
     
     setup_provider
     write_provider_files
+    prepare_provider_image
     validate_provider_files
     
     log "Starting ${PROVIDER}..."

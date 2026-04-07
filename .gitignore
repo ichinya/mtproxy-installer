@@ -12,6 +12,8 @@ conver.json
 /*.md
 .*/
 .*
+!.env.example
+!providers/*/.env.example
 /*.json
 .opencode/*
 !.opencode/skills/
