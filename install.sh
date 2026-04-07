@@ -14,7 +14,7 @@ PORT="${2:-${PORT:-443}}"
 PROVIDER_DIR="${INSTALL_DIR}/providers/${PROVIDER}"
 DATA_DIR="${PROVIDER_DIR}/data"
 DEFAULT_TELEMT_IMAGE_SOURCE="whn0thacked/telemt-docker:latest"
-DEFAULT_MTG_IMAGE_SOURCE="ghcr.io/9seconds/mtg:latest"
+DEFAULT_MTG_IMAGE_SOURCE="nineseconds/mtg:2"
 
 # Defaults (can be overridden via environment)
 API_PORT="${API_PORT:-9091}"
@@ -269,7 +269,7 @@ write_mtg_compose() {
     cat > "${INSTALL_DIR}/docker-compose.yml" <<'EOF'
 services:
   mtg:
-    image: ${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}
+    image: ${MTG_IMAGE:-nineseconds/mtg:2}
     container_name: mtg
     restart: unless-stopped
     volumes:

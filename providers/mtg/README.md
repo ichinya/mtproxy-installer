@@ -3,7 +3,7 @@
 ## Базовый upstream
 
 - Engine: `https://github.com/9seconds/mtg`
-- Docker image: `ghcr.io/9seconds/mtg:latest`
+- Docker image: `nineseconds/mtg:2`
 
 ## Текущий статус
 
@@ -27,10 +27,10 @@ mtg использует FakeTLS секреты специального фор�
 
 ```bash
 # Base64 secret
-docker run --rm ghcr.io/9seconds/mtg:latest generate-secret www.google.com
+docker run --rm nineseconds/mtg:2 generate-secret www.google.com
 
 # Hex secret (начинается с ee)
-docker run --rm ghcr.io/9seconds/mtg:latest generate-secret --hex www.google.com
+docker run --rm nineseconds/mtg:2 generate-secret --hex www.google.com
 ```
 
 Для `mtg v2` в конфиге обязательны только `secret` и `bind-to`.

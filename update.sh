@@ -6,7 +6,7 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/mtproxy-installer}"
 ENV_FILE="${INSTALL_DIR}/.env"
 COMPOSE_FILE="${INSTALL_DIR}/docker-compose.yml"
 DEFAULT_TELEMT_IMAGE_SOURCE="whn0thacked/telemt-docker:latest"
-DEFAULT_MTG_IMAGE_SOURCE="ghcr.io/9seconds/mtg:latest"
+DEFAULT_MTG_IMAGE_SOURCE="nineseconds/mtg:2"
 
 log() {
     printf '%s\n' "$1"

@@ -4,7 +4,7 @@
 
 # FakeTLS secret.
 # Generate one with:
-#   docker run --rm ghcr.io/9seconds/mtg:latest generate-secret --hex www.google.com
+#   docker run --rm nineseconds/mtg:2 generate-secret --hex www.google.com
 secret = "ee473ce5d4958eb5f968c87680a23854a0676f6f676c652e636f6d"
 
 # Bind address inside the container.

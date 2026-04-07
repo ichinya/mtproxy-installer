@@ -1,6 +1,6 @@
 services:
   mtg:
-    image: ${MTG_IMAGE:-ghcr.io/9seconds/mtg:latest}
+    image: ${MTG_IMAGE:-nineseconds/mtg:2}
     container_name: mtg
     restart: unless-stopped
     volumes:
