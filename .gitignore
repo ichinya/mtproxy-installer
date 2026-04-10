@@ -15,8 +15,4 @@ conver.json
 !.env.example
 !providers/*/.env.example
 /*.json
-.opencode/*
-!.opencode/skills/
-.opencode/skills/*
-!.opencode/skills/telemt-provider/
-!.opencode/skills/telemt-provider/**
+/.*
