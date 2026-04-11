@@ -170,3 +170,18 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/unin
 - [Configuration](configuration.md) - все ключевые env vars и настройки Telemt
 - [Reverse Proxy](reverse-proxy.md) - схемы с L4-routing и fallback backend
 - [Troubleshooting](troubleshooting.md) - частые проблемы после первого запуска
+
+## Go CLI runtime checks (read-only)
+
+For operator checks, you can use the Go CLI without mutating runtime state:
+
+```bash
+cd app
+go run ./cmd/mtproxy status
+go run ./cmd/mtproxy link
+```
+
+Notes:
+- `status` reports install dir, provider, compose state, API health, and link availability.
+- `link` can print a full `tg://proxy` URL only in its own stdout path.
+- when provider is not `telemt`, commands report partial runtime details and unsupported-provider warnings.

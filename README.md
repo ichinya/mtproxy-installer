@@ -111,3 +111,19 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/unin
 ## Лицензия
 
 Лицензия в репозитории пока не указана.
+
+## CLI Status and Link (Read-only)
+
+The Go CLI now provides two read-only runtime inspection commands:
+
+```bash
+cd app
+go run ./cmd/mtproxy status
+go run ./cmd/mtproxy link
+```
+
+Behavior summary:
+- `status` reconciles `.env`, `docker compose ps`, `/v1/health`, and `/v1/users` into a runtime summary.
+- `link` prints a full `tg://proxy` link only to command stdout when telemt runtime resolution succeeds.
+- non-telemt runtimes are reported as partial/unsupported with explicit WARN diagnostics.
+- logs keep proxy links redacted; full links are never logged by `status`.

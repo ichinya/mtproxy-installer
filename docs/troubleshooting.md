@@ -357,3 +357,22 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/unin
 - [Getting Started](getting-started.md) - базовая проверка после установки
 - [Configuration](configuration.md) - параметры, которые чаще всего приходится корректировать
 - [Reverse Proxy](reverse-proxy.md) - схемы, где часто проявляются сетевые проблемы
+
+## Use `mtproxy status` and `mtproxy link` for diagnostics
+
+When checking runtime state, prefer read-only CLI commands before restart actions:
+
+```bash
+cd app
+go run ./cmd/mtproxy status
+go run ./cmd/mtproxy link
+```
+
+How to interpret logs and output:
+- `INFO`: final runtime summary for healthy state.
+- `WARN`: degraded signals (compose/API mismatch, unsupported provider, link unavailable).
+- `ERROR`: status resolution failed and a safe summary could not be produced.
+
+Security boundary:
+- full proxy links are expected only in `link` stdout;
+- logs and `status` output keep proxy links redacted.

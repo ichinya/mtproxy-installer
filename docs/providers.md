@@ -150,3 +150,11 @@ Official MTProxy нужен как reference provider.
 - [Configuration](configuration.md) - переменные окружения и ключевые параметры Telemt
 - [Upstream Repositories](upstream-repositories.md) - откуда берутся provider decisions
 - [Installation Strategy](installation-strategy.md) - как текущий default path должен эволюционировать дальше
+
+## CLI provider caveat for status and link
+
+`mtproxy status` and `mtproxy link` are telemt-first commands.
+
+- For `telemt`, the CLI reconciles compose and `/v1/*` API signals and reports a full runtime summary.
+- For `mtg`, `official`, or ambiguous provider states, the CLI returns a partial summary with WARN diagnostics.
+- Unsupported provider paths do not emulate `/v1/health` or `/v1/users` parity.
