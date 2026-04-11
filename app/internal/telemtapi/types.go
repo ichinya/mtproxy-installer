@@ -2,9 +2,20 @@ package telemtapi
 
 import (
 	"encoding/json"
+	"net"
+	"net/url"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode"
 )
+
+var allowedProxyQueryKeys = map[string]struct{}{
+	"port":   {},
+	"secret": {},
+	"server": {},
+	"tag":    {},
+}
 
 type HealthParseClass string
 
@@ -197,11 +208,116 @@ func (u UsersEnvelope) SelectStartupLink() LinkSelection {
 }
 
 func IsUsableProxyLink(value string) bool {
-	link := strings.ToLower(strings.TrimSpace(value))
-	if link == "" {
+	if containsControlCharacters(value) {
 		return false
 	}
-	return strings.HasPrefix(link, "tg://proxy?") || strings.HasPrefix(link, "https://t.me/proxy?")
+
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return false
+	}
+
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return false
+	}
+	if parsed == nil || parsed.User != nil || strings.TrimSpace(parsed.Fragment) != "" {
+		return false
+	}
+	if !isAllowedProxyEndpoint(parsed) {
+		return false
+	}
+
+	query := parsed.Query()
+	if len(query) == 0 {
+		return false
+	}
+	for key, values := range query {
+		if _, allowed := allowedProxyQueryKeys[key]; !allowed {
+			return false
+		}
+		if len(values) != 1 {
+			return false
+		}
+		if containsControlCharacters(values[0]) {
+			return false
+		}
+	}
+
+	server := strings.TrimSpace(query.Get("server"))
+	secret := strings.TrimSpace(query.Get("secret"))
+	portRaw := strings.TrimSpace(query.Get("port"))
+
+	if server == "" || secret == "" || portRaw == "" {
+		return false
+	}
+	if containsControlCharacters(server) || containsControlCharacters(secret) || containsControlCharacters(portRaw) {
+		return false
+	}
+	if strings.ContainsAny(server, "/\\?#@") {
+		return false
+	}
+	if ip := net.ParseIP(server); ip == nil && !looksLikeHostname(server) {
+		return false
+	}
+
+	port, err := strconv.Atoi(portRaw)
+	if err != nil {
+		return false
+	}
+
+	return port >= 1 && port <= 65535
+}
+
+func isAllowedProxyEndpoint(parsed *url.URL) bool {
+	if parsed == nil {
+		return false
+	}
+
+	switch strings.ToLower(strings.TrimSpace(parsed.Scheme)) {
+	case "tg":
+		host := strings.ToLower(strings.TrimSpace(parsed.Host))
+		path := strings.TrimSpace(parsed.Path)
+		return host == "proxy" && (path == "" || path == "/")
+	case "https":
+		host := strings.ToLower(strings.TrimSpace(parsed.Host))
+		path := strings.ToLower(strings.TrimSpace(parsed.Path))
+		return host == "t.me" && (path == "/proxy" || path == "/proxy/")
+	default:
+		return false
+	}
+}
+
+func looksLikeHostname(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, part := range strings.Split(value, ".") {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			return false
+		}
+		for _, char := range trimmed {
+			switch {
+			case char >= 'a' && char <= 'z':
+			case char >= 'A' && char <= 'Z':
+			case char >= '0' && char <= '9':
+			case char == '-':
+			default:
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func containsControlCharacters(value string) bool {
+	for _, char := range value {
+		if unicode.IsControl(char) {
+			return true
+		}
+	}
+	return false
 }
 
 func (u UsersEnvelope) projectUsers() ([]UserProjection, bool, string) {

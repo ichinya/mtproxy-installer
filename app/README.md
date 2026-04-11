@@ -7,6 +7,7 @@ Current scope:
 - shared root command routing in `internal/cli`
 - build metadata in `internal/version`
 - startup logging with redaction-safe defaults
+- read-only runtime inspection commands (`status`, `link`) for telemt-first installations
 
 Important boundary:
 - The active runtime path is still Bash-first (`install.sh`, `update.sh`, `uninstall.sh`).
@@ -27,6 +28,8 @@ Run the binary:
 ```bash
 ./mtproxy help
 ./mtproxy version
+./mtproxy status
+./mtproxy link
 ```
 
 ## Build metadata injection
@@ -63,6 +66,12 @@ Log level defaults:
 - override via `MTPROXY_LOG_LEVEL` (`debug`, `info`, `warn`, `error`)
 
 Redaction rule:
-- non-`link` commands must not emit full proxy links or secret-like key/value data
-- full proxy links are only allowed when the command is explicitly `link`
+- logs and structured summaries must not emit full proxy links or secret-like key/value data
+- full proxy links are allowed only in explicit `link` command stdout output
 
+## Runtime inspection behavior
+
+- `mtproxy status` is read-only and prints runtime/provider summary derived from `.env`, `docker compose ps`, `/v1/health`, `/v1/users`
+- `mtproxy link` is read-only and prints a full `tg://proxy` link only when telemt runtime resolution succeeds
+- non-telemt providers (`mtg`, `official`, ambiguous states) return partial summary with explicit unsupported-provider warning
+- `status` keeps link fields redacted even when the runtime is healthy

@@ -6,18 +6,13 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"regexp"
 	"strings"
 
+	execadapter "mtproxy-installer/app/internal/exec"
 	"mtproxy-installer/app/internal/version"
 )
 
 const logLevelEnv = "MTPROXY_LOG_LEVEL"
-
-var (
-	proxyLinkPattern = regexp.MustCompile(`tg://proxy\?[^\s]+|https://t\.me/proxy\?\S+`)
-	secretKVPattern  = regexp.MustCompile(`(?i)\b(secret|token|password)=([^&\s]+)`)
-)
 
 type FatalConfigError struct {
 	Field   string
@@ -116,7 +111,11 @@ func routeCommand(ctx commandContext) error {
 		return runHelp(ctx)
 	case "version":
 		return runVersion(ctx)
-	case "install", "update", "uninstall", "link":
+	case "status":
+		return runStatus(ctx)
+	case "link":
+		return runLink(ctx)
+	case "install", "update", "uninstall":
 		return runPlaceholder(ctx)
 	default:
 		_ = runHelp(ctx)
@@ -157,6 +156,14 @@ func runHelp(ctx commandContext) error {
 	if err != nil {
 		return err
 	}
+	_, err = fmt.Fprintln(ctx.Stdout, "  status    Show runtime summary from compose and provider API")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(ctx.Stdout, "  link      Print proxy link for telemt runtime")
+	if err != nil {
+		return err
+	}
 	_, err = fmt.Fprintln(ctx.Stdout, "  install   Placeholder command (not implemented)")
 	if err != nil {
 		return err
@@ -166,10 +173,6 @@ func runHelp(ctx commandContext) error {
 		return err
 	}
 	_, err = fmt.Fprintln(ctx.Stdout, "  uninstall Placeholder command (not implemented)")
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(ctx.Stdout, "  link      Placeholder command (not implemented)")
 	return err
 }
 
@@ -239,11 +242,6 @@ func logCommandError(logger *slog.Logger, command string, err error) {
 }
 
 func redactForCommand(command string, value string) string {
-	if strings.EqualFold(command, "link") {
-		return value
-	}
-
-	redacted := proxyLinkPattern.ReplaceAllString(value, "[redacted-proxy-link]")
-	redacted = secretKVPattern.ReplaceAllString(redacted, "$1=[redacted]")
-	return redacted
+	_ = command
+	return execadapter.RedactText(value)
 }

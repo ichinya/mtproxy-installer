@@ -86,11 +86,81 @@ func TestExecuteRedactsProxyLinksForNonLinkCommands(t *testing.T) {
 	}
 }
 
-func TestRedactForCommandAllowsLinkCommand(t *testing.T) {
+func TestRedactForCommandRedactsLinkCommand(t *testing.T) {
 	raw := "tg://proxy?server=127.0.0.1&secret=abcdef"
 	got := redactForCommand("link", raw)
-	if got != raw {
-		t.Fatalf("expected link command to keep full link, got: %s", got)
+	if strings.Contains(got, "tg://proxy?") {
+		t.Fatalf("expected link command logs to stay redacted, got: %s", got)
+	}
+	if strings.Contains(got, "secret=abcdef") {
+		t.Fatalf("expected link command secret to be redacted, got: %s", got)
+	}
+	if !strings.Contains(got, "[redacted-proxy-link]") {
+		t.Fatalf("expected redaction marker, got: %s", got)
+	}
+}
+
+func TestRedactForCommandRedactsBearerCookieAndJSONSecrets(t *testing.T) {
+	raw := `Authorization: Bearer abc123 Cookie: session=abcdef {"api_key":"secret-value","authToken":"token-value"}`
+	got := redactForCommand("status", raw)
+
+	if strings.Contains(got, "abc123") {
+		t.Fatalf("expected bearer token to be redacted, got: %s", got)
+	}
+	if strings.Contains(got, "session=abcdef") {
+		t.Fatalf("expected cookie value to be redacted, got: %s", got)
+	}
+	if strings.Contains(got, "secret-value") || strings.Contains(got, "token-value") {
+		t.Fatalf("expected JSON secrets to be redacted, got: %s", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "authorization: [redacted]") {
+		t.Fatalf("expected authorization header to be redacted, got: %s", got)
+	}
+}
+
+func TestExecuteHelpIncludesStatusAndLink(t *testing.T) {
+	resetVersionState(t, "dev", "unknown", "unknown", "development")
+	t.Setenv(logLevelEnv, "debug")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := Execute([]string{"help"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "status") {
+		t.Fatalf("expected help to include status command, got: %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "link") {
+		t.Fatalf("expected help to include link command, got: %s", stdout.String())
+	}
+}
+
+func TestExecuteStatusRejectsUnexpectedArgs(t *testing.T) {
+	resetVersionState(t, "dev", "unknown", "unknown", "development")
+	t.Setenv(logLevelEnv, "debug")
+
+	err := Execute([]string{"status", "unexpected"}, io.Discard, io.Discard)
+	if err == nil {
+		t.Fatalf("expected status command to reject unexpected args")
+	}
+	if !strings.Contains(err.Error(), "status command does not accept arguments") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestExecuteLinkRejectsUnexpectedArgs(t *testing.T) {
+	resetVersionState(t, "dev", "unknown", "unknown", "development")
+	t.Setenv(logLevelEnv, "debug")
+
+	err := Execute([]string{"link", "unexpected"}, io.Discard, io.Discard)
+	if err == nil {
+		t.Fatalf("expected link command to reject unexpected args")
+	}
+	if !strings.Contains(err.Error(), "link command does not accept arguments") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

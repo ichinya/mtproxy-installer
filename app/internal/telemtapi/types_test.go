@@ -129,6 +129,14 @@ func TestUsersEnvelopeSelectStartupLinkVariants(t *testing.T) {
 			wantClass:  UsersParseClassIncompleteStructure,
 			wantReason: "users_collection_missing_or_unsupported",
 		},
+		{
+			name:           "tls links with control characters are rejected",
+			payload:        `{"ok":true,"users":{"main":{"tls":["tg://proxy?server=127.0.0.1&port=443&secret=abc\u001b[31m"]}}}`,
+			wantClass:      UsersParseClassNoTLSLinks,
+			wantReason:     "tls_links_present_but_unusable",
+			wantUsers:      1,
+			wantCandidates: 1,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -180,4 +188,67 @@ func mustUnmarshalUsersEnvelope(t *testing.T, raw string) UsersEnvelope {
 	}
 
 	return envelope
+}
+
+func TestIsUsableProxyLinkStrictValidation(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{
+			name:  "valid tg link",
+			value: "tg://proxy?server=127.0.0.1&port=443&secret=abcdef",
+			want:  true,
+		},
+		{
+			name:  "valid t.me link",
+			value: "https://t.me/proxy?server=proxy.example.com&port=8443&secret=abcdef&tag=test",
+			want:  true,
+		},
+		{
+			name:  "rejects unknown query key",
+			value: "tg://proxy?server=127.0.0.1&port=443&secret=abcdef&debug=true",
+			want:  false,
+		},
+		{
+			name:  "rejects missing required key",
+			value: "tg://proxy?server=127.0.0.1&port=443",
+			want:  false,
+		},
+		{
+			name:  "rejects invalid port",
+			value: "tg://proxy?server=127.0.0.1&port=70000&secret=abcdef",
+			want:  false,
+		},
+		{
+			name:  "rejects non-allowlisted https host",
+			value: "https://example.com/proxy?server=127.0.0.1&port=443&secret=abcdef",
+			want:  false,
+		},
+		{
+			name:  "rejects control characters",
+			value: "tg://proxy?server=127.0.0.1&port=443&secret=abc\n",
+			want:  false,
+		},
+		{
+			name:  "rejects ansi escape sequence",
+			value: "tg://proxy?server=127.0.0.1&port=443&secret=abc\u001b[31m",
+			want:  false,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := IsUsableProxyLink(testCase.value)
+			if got != testCase.want {
+				t.Fatalf("unexpected usability for %q: got %t, want %t", testCase.value, got, testCase.want)
+			}
+		})
+	}
 }
