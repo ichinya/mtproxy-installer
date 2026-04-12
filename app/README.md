@@ -32,6 +32,7 @@ Run the binary:
 ./mtproxy link
 ./mtproxy logs --tail 50
 ./mtproxy restart
+./mtproxy uninstall --yes --install-dir /opt/mtproxy-installer
 ```
 
 ## Build metadata injection
@@ -78,6 +79,8 @@ Redaction rule:
 - `mtproxy logs` streams provider service logs and supports `--tail`, `--follow`, `--timestamps`, `--no-color`
 - `mtproxy restart` executes controlled restart with pre/post compose state snapshots and provider-aware post-check summary from `docker compose ps --all <service>`
 - `restart` may complete with `WARN` degradation even when `docker compose restart` exits 0, if post-check detects `Exited`, mixed, unknown, or not-running state
+- `mtproxy uninstall` is explicit `telemt-only` in v1: it requires `--yes`, logs destructive intent/preflight, and refuses `mtg`, `official`, provider ambiguity, or env-vs-runtime mismatch before cleanup
+- `mtproxy uninstall --keep-data --yes` keeps `${INSTALL_DIR}` data while still stopping compose stack and cleaning telemt image refs
 - non-telemt providers (`mtg`, `official`, ambiguous states) return partial summary with explicit unsupported-provider warning
 - `status` keeps link fields redacted even when the runtime is healthy
 

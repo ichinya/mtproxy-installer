@@ -82,7 +82,7 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/inst
 |----------------|---------------------------------------------------|
 | `install.sh`   | Установка с нуля                                  |
 | `update.sh`    | Обновление provider image с сохранением secret/config и rollback при неуспехе |
-| `uninstall.sh` | Удаление контейнера, образа и данных              |
+| `uninstall.sh` | V1 `telemt-only` удаление runtime с ранним отказом для `mtg`/`official`/ambiguous состояний |
 
 ```bash
 # Обновление
@@ -94,6 +94,8 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/unin
 # Удаление с сохранением данных
 curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/uninstall.sh | sudo env KEEP_DATA=true bash
 ```
+
+`uninstall.sh` теперь печатает структурные markers (`Install dir`, `Provider`, `Strategy`, `Keep data`, `Cleanup status`, `Data removed`, `Image cleanup`) и всегда отказывается от cleanup шагов для неподдерживаемого provider в v1.
 
 ## Локальная разработка
 
@@ -122,6 +124,7 @@ go run ./cmd/mtproxy status
 go run ./cmd/mtproxy link
 go run ./cmd/mtproxy logs --tail 50
 go run ./cmd/mtproxy restart
+go run ./cmd/mtproxy uninstall --yes
 ```
 
 Behavior summary:
@@ -130,5 +133,6 @@ Behavior summary:
 - `logs` tails/streams compose logs for detected provider service (`telemt` or `mtg`) and supports `--tail`, `--follow`, `--timestamps`, `--no-color`.
 - `restart` runs `docker compose restart` for detected provider service and always performs post-check with `docker compose ps --all <service>`.
 - even with successful restart exit code, `restart` emits `WARN` and degraded summary when post-check detects `Exited`/`not_running` or `unknown` (including mixed compose states).
+- `uninstall` requires explicit `--yes`, logs destructive intent and preflight checks, keeps `--keep-data` semantics, and is explicitly `telemt-only` in v1.
 - raw container logs are streamed to command stdout/stderr and are not duplicated into structured CLI logs (`stderr_summary` is disabled for `logs` path).
 - non-telemt runtimes are reported as partial/unsupported with explicit WARN diagnostics.

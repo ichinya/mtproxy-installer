@@ -58,6 +58,25 @@ func RenderUpdateLifecycle(summary scripts.UpdateLifecycleSummary) string {
 	return strings.Join(lines, "\n")
 }
 
+func RenderUninstallLifecycle(summary scripts.UninstallLifecycleSummary) string {
+	lines := []string{
+		fmt.Sprintf("Uninstall status: %s", summary.CleanupStatus),
+		fmt.Sprintf("Strategy: %s", normalizeLifecycleValue(summary.Strategy, scripts.UninstallStrategyTelemtOnly)),
+		fmt.Sprintf("Provider: %s", normalizeLifecycleValue(summary.Provider, "unknown")),
+		fmt.Sprintf("Install dir: %s", normalizeLifecycleValue(summary.InstallDir, "unknown")),
+		fmt.Sprintf("Keep data: %t", summary.KeepData),
+		fmt.Sprintf("Data removed: %s", normalizeLifecycleValue(summary.DataRemoved, "unknown")),
+		fmt.Sprintf("Image cleanup: %s", normalizeLifecycleValue(summary.ImageCleanup, "unknown")),
+	}
+	for _, hint := range summary.OperatorHints {
+		lines = append(lines, hint)
+	}
+	if len(summary.ParseDiagnostics) > 0 {
+		lines = append(lines, fmt.Sprintf("Parse diagnostics: %s", strings.Join(summary.ParseDiagnostics, "; ")))
+	}
+	return strings.Join(lines, "\n")
+}
+
 func normalizeLifecycleValue(value string, fallback string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {

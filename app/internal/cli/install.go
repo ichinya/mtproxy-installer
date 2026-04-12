@@ -38,6 +38,7 @@ var cliTrustBoundaryEnvPrefixAllowlist = []string{
 type lifecycleScriptsManager interface {
 	Install(context.Context, scripts.InstallOptions) (execadapter.Result, error)
 	Update(context.Context, scripts.UpdateOptions) (execadapter.Result, error)
+	Uninstall(context.Context, scripts.UninstallOptions) (execadapter.Result, error)
 }
 
 var newLifecycleScriptsManager = func(logger *slog.Logger) (lifecycleScriptsManager, error) {

@@ -142,6 +142,12 @@ func TestExecuteHelpIncludesStatusLinkLogsAndRestart(t *testing.T) {
 	if !strings.Contains(stdout.String(), "restart") {
 		t.Fatalf("expected help to include restart command, got: %s", stdout.String())
 	}
+	if !strings.Contains(stdout.String(), "uninstall") {
+		t.Fatalf("expected help to include uninstall command, got: %s", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "Placeholder command (not implemented)") {
+		t.Fatalf("expected uninstall command to be implemented, got: %s", stdout.String())
+	}
 }
 
 func TestExecuteStatusRejectsUnexpectedArgs(t *testing.T) {

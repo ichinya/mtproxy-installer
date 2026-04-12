@@ -158,3 +158,10 @@ Official MTProxy нужен как reference provider.
 - For `telemt`, the CLI reconciles compose and `/v1/*` API signals and reports a full runtime summary.
 - For `mtg`, `official`, or ambiguous provider states, the CLI returns a partial summary with WARN diagnostics.
 - Unsupported provider paths do not emulate `/v1/health` or `/v1/users` parity.
+
+`mtproxy uninstall` and `uninstall.sh` follow a stricter v1 contract:
+
+- Strategy is explicitly `telemt_only`.
+- The command logs detected provider and `KEEP_DATA`, then requires confirmation (`--yes` in CLI) before destructive steps.
+- `mtg`, `official`, ambiguous detection, and env-vs-runtime mismatch are rejected before `docker compose down`, image cleanup, or `rm -rf`.
+- Provider-neutral uninstall is deferred to a future task and must be documented as a deliberate contract expansion.

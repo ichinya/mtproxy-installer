@@ -60,3 +60,32 @@ func TestRenderUpdateLifecycleIncludesRollbackStatus(t *testing.T) {
 		t.Fatalf("expected prepared rollback image line, got: %s", rendered)
 	}
 }
+
+func TestRenderUninstallLifecycleIncludesStructuredFields(t *testing.T) {
+	t.Parallel()
+
+	rendered := RenderUninstallLifecycle(scripts.UninstallLifecycleSummary{
+		Provider:         "telemt",
+		InstallDir:       "/opt/mtproxy-installer",
+		KeepData:         false,
+		Strategy:         scripts.UninstallStrategyTelemtOnly,
+		CleanupStatus:    scripts.UninstallCleanupStatusCompleted,
+		DataRemoved:      "true",
+		ImageCleanup:     "removed",
+		OperatorHints:    []string{"WARN: Destructive action requested"},
+		ParseDiagnostics: []string{},
+	})
+
+	if !strings.Contains(rendered, "Uninstall status: completed") {
+		t.Fatalf("expected uninstall status line, got: %s", rendered)
+	}
+	if !strings.Contains(rendered, "Strategy: telemt_only") {
+		t.Fatalf("expected strategy line, got: %s", rendered)
+	}
+	if !strings.Contains(rendered, "Data removed: true") {
+		t.Fatalf("expected data removed line, got: %s", rendered)
+	}
+	if !strings.Contains(rendered, "Image cleanup: removed") {
+		t.Fatalf("expected image cleanup line, got: %s", rendered)
+	}
+}

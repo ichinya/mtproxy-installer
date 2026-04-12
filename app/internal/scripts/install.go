@@ -401,7 +401,30 @@ func (m *Manager) Install(ctx context.Context, options InstallOptions) (execadap
 }
 
 func (m *Manager) resolveScriptPath(scriptName string) (string, error) {
-	candidate := filepath.Clean(filepath.Join(m.repoRoot, scriptName))
+	return resolveScriptPathFromRoot(m.repoRoot, scriptName)
+}
+
+func (m *Manager) resolveUninstallScriptPath() (string, error) {
+	if strings.TrimSpace(m.privilegedExecutionScope) == "" {
+		return m.resolveScriptPath(uninstallScriptName)
+	}
+
+	trustedRoot, err := resolvePrivilegedUninstallScriptRoot()
+	if err != nil {
+		return "", err
+	}
+
+	m.logger.Debug(
+		"uninstall adapter resolved privileged script root",
+		"script_root", trustedRoot,
+		"privileged_execution_scope", m.privilegedExecutionScope,
+	)
+
+	return resolveScriptPathFromRoot(trustedRoot, uninstallScriptName)
+}
+
+func resolveScriptPathFromRoot(scriptRoot string, scriptName string) (string, error) {
+	candidate := filepath.Clean(filepath.Join(scriptRoot, scriptName))
 	info, err := os.Lstat(candidate)
 	if err != nil {
 		return "", fmt.Errorf("unable to resolve %s: %w", scriptName, err)
@@ -416,6 +439,60 @@ func (m *Manager) resolveScriptPath(scriptName string) (string, error) {
 		return "", fmt.Errorf("script path chain is unsafe for %s: %w", scriptName, err)
 	}
 	return candidate, nil
+}
+
+func resolvePrivilegedUninstallScriptRoot() (string, error) {
+	candidates := make([]string, 0, 16)
+	if executablePath, err := os.Executable(); err == nil {
+		if executableCandidates, collectErr := collectRepoRootCandidatesFromExecutable(executablePath); collectErr == nil {
+			candidates = append(candidates, executableCandidates...)
+		}
+	}
+	for _, candidate := range trustedLifecycleScriptRootCandidates {
+		candidates = append(candidates, filepath.Clean(filepath.FromSlash(candidate)))
+	}
+
+	validationFailures := make([]string, 0, len(candidates))
+	for _, candidate := range deduplicateCandidatePaths(candidates) {
+		resolved, err := validateRepoRootCandidate(candidate, "privileged uninstall script root", true)
+		if err != nil {
+			validationFailures = append(validationFailures, err.Error())
+			continue
+		}
+		if err := validateLifecycleScriptRootTrust(resolved); err != nil {
+			validationFailures = append(validationFailures, err.Error())
+			continue
+		}
+		return resolved, nil
+	}
+
+	if len(validationFailures) == 0 {
+		return "", errors.New("unable to resolve trusted script root for privileged uninstall")
+	}
+	return "", fmt.Errorf(
+		"unable to resolve trusted script root for privileged uninstall: %s",
+		strings.Join(validationFailures, " | "),
+	)
+}
+
+func validateLifecycleScriptRootTrust(root string) error {
+	checkedPaths := []string{
+		root,
+		filepath.Join(root, installScriptName),
+		filepath.Join(root, updateScriptName),
+		filepath.Join(root, uninstallScriptName),
+	}
+
+	for _, path := range checkedPaths {
+		if err := ensurePathOwnershipTrusted(path); err != nil {
+			return fmt.Errorf("trusted script root ownership check failed: %w", err)
+		}
+		if err := ensurePathPermissionsTrusted(path); err != nil {
+			return fmt.Errorf("trusted script root permission check failed: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func enforceInstallDirDestructivePolicy(operation string, installDir string, allowNonDefaultInstallDir bool) error {

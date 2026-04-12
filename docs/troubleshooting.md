@@ -350,7 +350,12 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/upda
 curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/uninstall.sh | sudo bash
 ```
 
-См. [uninstall.sh](../uninstall.sh) — удаляет контейнер, образ и данные.
+См. [uninstall.sh](../uninstall.sh) — v1 `telemt-only` uninstall path.
+Перед cleanup он выводит markers `Install dir`, `Provider`, `Strategy`, `Keep data`, а после завершения —
+`Cleanup status`, `Data removed`, `Image cleanup`.
+
+Если обнаружены `mtg`, `official`, provider ambiguity или env-vs-runtime mismatch, команда завершится до удаления с
+`Cleanup status: blocked_*` и `ERROR:` строкой.
 
 ## See Also
 
@@ -358,7 +363,7 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/unin
 - [Configuration](configuration.md) - параметры, которые чаще всего приходится корректировать
 - [Reverse Proxy](reverse-proxy.md) - схемы, где часто проявляются сетевые проблемы
 
-## Use `mtproxy` CLI (`status`, `link`, `logs`, `restart`) for diagnostics
+## Use `mtproxy` CLI (`status`, `link`, `logs`, `restart`, `uninstall`) for diagnostics
 
 When checking runtime state, prefer CLI commands before manual compose operations:
 
@@ -368,12 +373,14 @@ go run ./cmd/mtproxy status
 go run ./cmd/mtproxy link
 go run ./cmd/mtproxy logs --tail 100 --follow
 go run ./cmd/mtproxy restart
+go run ./cmd/mtproxy uninstall --yes --keep-data
 ```
 
 How to interpret logs and output:
 - `INFO`: lifecycle and healthy summary.
 - `WARN`: degraded signals (compose/API mismatch, unsupported provider, link unavailable, or degraded restart post-check).
 - `ERROR`: command failed and runtime-safe summary could not be produced.
+- `uninstall` emits `WARN` before destructive steps and `ERROR` for provider mismatch hazards or partial cleanup.
 
 `restart` semantics:
 - successful `docker compose restart` exit code is not enough for healthy result;
@@ -384,3 +391,4 @@ Security boundary:
 - full proxy links are expected only in `link` stdout;
 - `status`/structured logs keep proxy links redacted;
 - raw container logs from `mtproxy logs` are streamed directly to stdout/stderr and are not mirrored to structured `stderr_summary` fields.
+- `uninstall` structured output is marker-based; if markers are missing/ambiguous, the CLI fails with parse diagnostics instead of claiming success.

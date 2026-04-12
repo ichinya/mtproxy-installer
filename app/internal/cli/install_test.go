@@ -19,6 +19,10 @@ type lifecycleManagerStub struct {
 	updateResult   execadapter.Result
 	updateErr      error
 	updateRequests []scripts.UpdateOptions
+
+	uninstallResult   execadapter.Result
+	uninstallErr      error
+	uninstallRequests []scripts.UninstallOptions
 }
 
 func (s *lifecycleManagerStub) Install(_ context.Context, options scripts.InstallOptions) (execadapter.Result, error) {
@@ -29,6 +33,11 @@ func (s *lifecycleManagerStub) Install(_ context.Context, options scripts.Instal
 func (s *lifecycleManagerStub) Update(_ context.Context, options scripts.UpdateOptions) (execadapter.Result, error) {
 	s.updateRequests = append(s.updateRequests, options)
 	return s.updateResult, s.updateErr
+}
+
+func (s *lifecycleManagerStub) Uninstall(_ context.Context, options scripts.UninstallOptions) (execadapter.Result, error) {
+	s.uninstallRequests = append(s.uninstallRequests, options)
+	return s.uninstallResult, s.uninstallErr
 }
 
 func withLifecycleManagerStub(t *testing.T, stub *lifecycleManagerStub) {

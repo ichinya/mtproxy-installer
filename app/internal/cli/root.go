@@ -124,7 +124,7 @@ func routeCommand(ctx commandContext) error {
 	case "update":
 		return runUpdate(ctx)
 	case "uninstall":
-		return runPlaceholder(ctx)
+		return runUninstall(ctx)
 	default:
 		_ = runHelp(ctx)
 		return fmt.Errorf("unknown subcommand: %s", ctx.Command)
@@ -188,7 +188,7 @@ func runHelp(ctx commandContext) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(ctx.Stdout, "  uninstall Placeholder command (not implemented)")
+	_, err = fmt.Fprintln(ctx.Stdout, "  uninstall Remove telemt runtime via uninstall.sh wrapper (requires --yes)")
 	return err
 }
 

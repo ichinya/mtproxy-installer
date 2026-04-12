@@ -159,6 +159,10 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/unin
 curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/uninstall.sh | sudo env KEEP_DATA=true bash
 ```
 
+Важно для v1: `uninstall.sh` и `mtproxy uninstall` работают в стратегии `telemt_only`.
+Если runtime определяется как `mtg`, `official`, ambiguous или env-vs-runtime mismatch, cleanup шаги не запускаются,
+а команда завершается с явными `WARN/ERROR` markers.
+
 ## Следующие шаги
 
 - настрой переменные окружения и `telemt.toml` под свой сервер
@@ -181,6 +185,7 @@ go run ./cmd/mtproxy status
 go run ./cmd/mtproxy link
 go run ./cmd/mtproxy logs --tail 50
 go run ./cmd/mtproxy restart
+go run ./cmd/mtproxy uninstall --yes --install-dir /opt/mtproxy-installer
 ```
 
 Notes:
@@ -188,4 +193,6 @@ Notes:
 - `link` can print a full `tg://proxy` URL only in its own stdout path.
 - `logs` uses detected provider service by default (`telemt`/`mtg`), supports `--follow` for live tail, and keeps raw stream out of structured command logs.
 - `restart` always performs post-check via `docker compose ps --all <service>`; successful compose restart can still end with degraded `WARN` when compose post-state is `Exited`, mixed, not-running, or unknown.
+- `uninstall` requires `--yes`; `--keep-data` preserves runtime data while still removing telemt runtime artifacts.
+- `uninstall` is explicit `telemt-only` in v1 and fails early for provider mismatch or unsupported provider states.
 - when provider is not `telemt`, commands report partial runtime details and unsupported-provider warnings.
