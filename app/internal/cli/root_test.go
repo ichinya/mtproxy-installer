@@ -118,7 +118,7 @@ func TestRedactForCommandRedactsBearerCookieAndJSONSecrets(t *testing.T) {
 	}
 }
 
-func TestExecuteHelpIncludesStatusAndLink(t *testing.T) {
+func TestExecuteHelpIncludesStatusLinkLogsAndRestart(t *testing.T) {
 	resetVersionState(t, "dev", "unknown", "unknown", "development")
 	t.Setenv(logLevelEnv, "debug")
 
@@ -135,6 +135,12 @@ func TestExecuteHelpIncludesStatusAndLink(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "link") {
 		t.Fatalf("expected help to include link command, got: %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "logs") {
+		t.Fatalf("expected help to include logs command, got: %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "restart") {
+		t.Fatalf("expected help to include restart command, got: %s", stdout.String())
 	}
 }
 

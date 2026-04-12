@@ -64,6 +64,12 @@ func Load(options LoadOptions) (*RuntimeInstallation, error) {
 		MTGConfig:    filepath.Join(installDir, "providers", string(ProviderMTG), "mtg.conf"),
 	}
 
+	hardenedPaths, err := hardenRuntimeLoadPaths(paths, logger)
+	if err != nil {
+		return nil, err
+	}
+	paths = hardenedPaths
+
 	if err := requireInstallDir(paths.InstallDir, logger); err != nil {
 		return nil, err
 	}
@@ -110,7 +116,7 @@ func Load(options LoadOptions) (*RuntimeInstallation, error) {
 	}
 
 	runtime := &RuntimeInstallation{
-		InstallDir:  installDir,
+		InstallDir:  paths.InstallDir,
 		Paths:       paths,
 		Env:         envFile,
 		Provider:    provider,
@@ -172,7 +178,7 @@ func requireInstallDir(path string, logger *slog.Logger) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		code := CodeInstallDirMissing
-		message := "install directory does not exist"
+		message := "install dir missing"
 		if errors.Is(err, os.ErrPermission) {
 			code = CodePermissionDenied
 			message = "permission denied while accessing install directory"
@@ -360,4 +366,255 @@ func fallbackLogger(logger *slog.Logger) *slog.Logger {
 		return logger
 	}
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelInfo}))
+}
+
+func hardenRuntimeLoadPaths(paths RuntimePaths, logger *slog.Logger) (RuntimePaths, error) {
+	resolvedInstallDir, err := resolveAbsoluteRuntimeLoadPath(paths.InstallDir)
+	if err != nil {
+		runtimeErr := &RuntimeError{
+			Code:    CodeInstallDirInvalid,
+			Path:    paths.InstallDir,
+			Message: "invalid install directory path",
+			Err:     err,
+		}
+		logger.Error("runtime path hardening failed", "path", paths.InstallDir, "error", runtimeErr.Error())
+		return RuntimePaths{}, runtimeErr
+	}
+
+	if err := validatePathChainNoSymlinksForRuntime(resolvedInstallDir); err != nil {
+		runtimeErr := &RuntimeError{
+			Code:    CodeInstallDirInvalid,
+			Path:    resolvedInstallDir,
+			Message: "install directory path chain is unsafe",
+			Err:     err,
+		}
+		logger.Error("runtime path hardening failed", "path", resolvedInstallDir, "error", runtimeErr.Error())
+		return RuntimePaths{}, runtimeErr
+	}
+	if err := ensurePathNotSymlinkForRuntime(resolvedInstallDir, "install directory"); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			logger.Debug(
+				"runtime path hardening skipped install-dir symlink check for missing path",
+				"path", resolvedInstallDir,
+			)
+		} else {
+			runtimeErr := &RuntimeError{
+				Code:    CodeInstallDirInvalid,
+				Path:    resolvedInstallDir,
+				Message: "install directory must not be a symlink",
+				Err:     err,
+			}
+			logger.Error("runtime path hardening failed", "path", resolvedInstallDir, "error", runtimeErr.Error())
+			return RuntimePaths{}, runtimeErr
+		}
+	}
+
+	envFile, err := hardenRuntimeLoadFilePath(resolvedInstallDir, paths.EnvFile, "runtime env file")
+	if err != nil {
+		logger.Error("runtime path hardening failed", "path", paths.EnvFile, "error", err.Error())
+		return RuntimePaths{}, err
+	}
+	composeFile, err := hardenRuntimeLoadFilePath(resolvedInstallDir, paths.ComposeFile, "runtime compose file")
+	if err != nil {
+		logger.Error("runtime path hardening failed", "path", paths.ComposeFile, "error", err.Error())
+		return RuntimePaths{}, err
+	}
+	telemtConfig, err := hardenRuntimeLoadFilePath(
+		resolvedInstallDir,
+		paths.TelemtConfig,
+		"telemt provider config file",
+	)
+	if err != nil {
+		logger.Error("runtime path hardening failed", "path", paths.TelemtConfig, "error", err.Error())
+		return RuntimePaths{}, err
+	}
+	mtgConfig, err := hardenRuntimeLoadFilePath(
+		resolvedInstallDir,
+		paths.MTGConfig,
+		"mtg provider config file",
+	)
+	if err != nil {
+		logger.Error("runtime path hardening failed", "path", paths.MTGConfig, "error", err.Error())
+		return RuntimePaths{}, err
+	}
+
+	logger.Debug(
+		"runtime path hardening finished",
+		"install_dir", resolvedInstallDir,
+		"env_file", envFile,
+		"compose_file", composeFile,
+		"telemt_config", telemtConfig,
+		"mtg_config", mtgConfig,
+	)
+
+	return RuntimePaths{
+		InstallDir:   resolvedInstallDir,
+		EnvFile:      envFile,
+		ComposeFile:  composeFile,
+		TelemtConfig: telemtConfig,
+		MTGConfig:    mtgConfig,
+	}, nil
+}
+
+func hardenRuntimeLoadFilePath(installDir string, path string, label string) (string, error) {
+	resolvedPath, err := resolveAbsoluteRuntimeLoadPath(path)
+	if err != nil {
+		return "", &RuntimeError{
+			Code:    CodeInstallDirInvalid,
+			Path:    path,
+			Message: fmt.Sprintf("invalid %s path", label),
+			Err:     err,
+		}
+	}
+
+	if !isPathWithinRuntimeInstallDir(installDir, resolvedPath) {
+		return "", &RuntimeError{
+			Code:    CodeInstallDirInvalid,
+			Path:    resolvedPath,
+			Message: fmt.Sprintf("%s path escapes install directory", label),
+		}
+	}
+	if err := validatePathChainNoSymlinksForRuntime(resolvedPath); err != nil {
+		return "", &RuntimeError{
+			Code:    CodeInstallDirInvalid,
+			Path:    resolvedPath,
+			Message: fmt.Sprintf("%s path chain is unsafe", label),
+			Err:     err,
+		}
+	}
+
+	info, err := os.Lstat(resolvedPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return resolvedPath, nil
+		}
+		code := CodeInstallDirInvalid
+		message := fmt.Sprintf("%s path is not accessible", label)
+		if errors.Is(err, os.ErrPermission) {
+			code = CodePermissionDenied
+			message = fmt.Sprintf("permission denied while hardening %s", label)
+		}
+		return "", &RuntimeError{
+			Code:    code,
+			Path:    resolvedPath,
+			Message: message,
+			Err:     err,
+		}
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", &RuntimeError{
+			Code:    CodeInstallDirInvalid,
+			Path:    resolvedPath,
+			Message: fmt.Sprintf("%s must not be a symlink", label),
+		}
+	}
+
+	return resolvedPath, nil
+}
+
+func resolveAbsoluteRuntimeLoadPath(path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", errors.New("path is required")
+	}
+	absolute, err := filepath.Abs(trimmed)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(absolute), nil
+}
+
+func validatePathChainNoSymlinksForRuntime(path string) error {
+	resolved, err := resolveAbsoluteRuntimeLoadPath(path)
+	if err != nil {
+		return err
+	}
+
+	volume := filepath.VolumeName(resolved)
+	segments := splitPathSegmentsForRuntime(resolved, volume)
+	current := volume
+	if current == "" {
+		if filepath.IsAbs(resolved) {
+			current = string(os.PathSeparator)
+		} else {
+			current = "."
+		}
+	} else {
+		current = filepath.Clean(volume + string(os.PathSeparator))
+	}
+
+	for index, segment := range segments {
+		next := filepath.Join(current, segment)
+		info, lstatErr := os.Lstat(next)
+		if lstatErr != nil {
+			if errors.Is(lstatErr, os.ErrNotExist) {
+				return nil
+			}
+			return fmt.Errorf("path component %q is not accessible: %w", next, lstatErr)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path component %q must not be a symlink", next)
+		}
+		if index < len(segments)-1 && !info.IsDir() {
+			return fmt.Errorf("path component %q is not a directory", next)
+		}
+		current = next
+	}
+
+	return nil
+}
+
+func splitPathSegmentsForRuntime(path string, volume string) []string {
+	trimmed := strings.TrimPrefix(path, volume)
+	trimmed = strings.TrimPrefix(trimmed, string(os.PathSeparator))
+	if strings.TrimSpace(trimmed) == "" {
+		return nil
+	}
+
+	parts := strings.Split(trimmed, string(os.PathSeparator))
+	segments := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || part == "." {
+			continue
+		}
+		segments = append(segments, part)
+	}
+	return segments
+}
+
+func ensurePathNotSymlinkForRuntime(path string, label string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("%s %q is not accessible: %w", label, path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s %q must not be a symlink", label, path)
+	}
+	return nil
+}
+
+func isPathWithinRuntimeInstallDir(base string, target string) bool {
+	baseResolved, err := resolveAbsoluteRuntimeLoadPath(base)
+	if err != nil {
+		return false
+	}
+	targetResolved, err := resolveAbsoluteRuntimeLoadPath(target)
+	if err != nil {
+		return false
+	}
+
+	relative, err := filepath.Rel(baseResolved, targetResolved)
+	if err != nil {
+		return false
+	}
+	cleanRel := filepath.Clean(relative)
+	if cleanRel == "." {
+		return true
+	}
+	if cleanRel == ".." {
+		return false
+	}
+	return !strings.HasPrefix(cleanRel, ".."+string(os.PathSeparator))
 }

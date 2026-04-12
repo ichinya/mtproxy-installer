@@ -8,8 +8,11 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	goruntime "runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +30,25 @@ const (
 var trustedBashBinaryCandidates = []string{
 	"/usr/bin/bash",
 	"/bin/bash",
+}
+
+var trustedLifecycleScriptRootCandidates = []string{
+	"/opt/mtproxy-installer",
+	"/usr/local/share/mtproxy-installer",
+	"/usr/local/lib/mtproxy-installer",
+	"/usr/local/libexec/mtproxy-installer",
+	"/usr/share/mtproxy-installer",
+	"/usr/lib/mtproxy-installer",
+}
+
+var trustedRepoRootLayoutHints = []string{
+	".",
+	"../share/mtproxy-installer",
+	"../lib/mtproxy-installer",
+	"../libexec/mtproxy-installer",
+	"../../share/mtproxy-installer",
+	"../../lib/mtproxy-installer",
+	"../../libexec/mtproxy-installer",
 }
 
 var protectedInstallDirTargets = map[string]struct{}{
@@ -85,6 +107,21 @@ var privilegedExecutionEnvOptInPrefixAllowlist = []string{
 	"DOCKER_TLS_",
 }
 
+var trustBoundaryEnvOverrideKeyAllowlist = map[string]struct{}{
+	"HOME":             {},
+	"XDG_RUNTIME_DIR":  {},
+	"HTTP_PROXY":       {},
+	"HTTPS_PROXY":      {},
+	"NO_PROXY":         {},
+	"DOCKER_HOST":      {},
+	"DOCKER_CERT_PATH": {},
+}
+
+var trustBoundaryEnvOverridePrefixAllowlist = []string{
+	"DOCKER_",
+	"COMPOSE_",
+}
+
 var installEnvOverrideAllowlist = mergeAllowedEnvKeys(
 	[]string{
 		"PROVIDER",
@@ -127,20 +164,23 @@ var (
 	secretValuePattern              = regexp.MustCompile(`^[A-Za-z0-9._~:+-]{8,256}$`)
 	proxyUserValuePattern           = regexp.MustCompile(`^[A-Za-z0-9._@+-]{1,64}$`)
 	imageReferencePattern           = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@:-]{0,254}$`)
+	installProxyLinkPattern         = regexp.MustCompile(`(?i)^(tg://proxy\?[^\s]+|https://t\.me/proxy\?\S+)$`)
 )
 
 type ManagerOptions struct {
-	Runner   *execadapter.Runner
-	Logger   *slog.Logger
-	RepoRoot string
-	BashPath string
+	Runner          *execadapter.Runner
+	Logger          *slog.Logger
+	RepoRoot        string
+	RepoRootFromEnv bool
+	BashPath        string
 }
 
 type Manager struct {
-	runner   *execadapter.Runner
-	logger   *slog.Logger
-	repoRoot string
-	bashPath string
+	runner                   *execadapter.Runner
+	logger                   *slog.Logger
+	repoRoot                 string
+	bashPath                 string
+	privilegedExecutionScope string
 }
 
 type InstallOptions struct {
@@ -158,12 +198,33 @@ type InstallOptions struct {
 	MTGImage                  string
 	MTGImageSource            string
 	ExtraEnv                  map[string]string
+	AllowTrustBoundaryEnv     bool
+}
+
+type envOverrideTrustPolicy struct {
+	AllowTrustBoundaryEnv bool
+	PrivilegedContext     string
+}
+
+type InstallLifecycleSummary struct {
+	Provider               string
+	InstallDir             string
+	PublicEndpoint         string
+	APIEndpoint            string
+	ConfigPath             string
+	LogsHint               string
+	Secret                 string
+	ProxyLink              string
+	ProxyLinkPresent       bool
+	SensitiveOutputPresent bool
+	OperatorHints          []string
+	ParseDiagnostics       []string
 }
 
 func NewManager(options ManagerOptions) (*Manager, error) {
 	logger := fallbackLogger(options.Logger)
 
-	repoRoot, err := resolveRepoRoot(options.RepoRoot)
+	repoRoot, err := resolveRepoRoot(options.RepoRoot, options.RepoRootFromEnv)
 	if err != nil {
 		return nil, err
 	}
@@ -177,13 +238,22 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 		runner = execadapter.NewRunner(logger)
 	}
 
-	logger.Debug("script adapter manager initialized", "repo_root", repoRoot, "bash_path", bashPath)
+	privilegedScope := detectPrivilegedExecutionContext()
+
+	logger.Debug(
+		"script adapter manager initialized",
+		"repo_root", repoRoot,
+		"repo_root_from_env", options.RepoRootFromEnv,
+		"bash_path", bashPath,
+		"privileged_execution_scope", normalizeLogValue(privilegedScope, "none"),
+	)
 
 	return &Manager{
-		runner:   runner,
-		logger:   logger,
-		repoRoot: repoRoot,
-		bashPath: bashPath,
+		runner:                   runner,
+		logger:                   logger,
+		repoRoot:                 repoRoot,
+		bashPath:                 bashPath,
+		privilegedExecutionScope: privilegedScope,
 	}, nil
 }
 
@@ -233,7 +303,15 @@ func (m *Manager) Install(ctx context.Context, options InstallOptions) (execadap
 	if err := sanitizeInstallEnvValueMap(envOverrides); err != nil {
 		return execadapter.Result{}, err
 	}
-	envOverrides, err = sanitizeEnvOverrides("install", envOverrides, installEnvOverrideAllowlist)
+	envOverrides, err = sanitizeEnvOverrides(
+		"install",
+		envOverrides,
+		installEnvOverrideAllowlist,
+		envOverrideTrustPolicy{
+			AllowTrustBoundaryEnv: options.AllowTrustBoundaryEnv,
+			PrivilegedContext:     m.privilegedExecutionScope,
+		},
+	)
 	if err != nil {
 		return execadapter.Result{}, err
 	}
@@ -274,12 +352,28 @@ func (m *Manager) Install(ctx context.Context, options InstallOptions) (execadap
 		AllowedEnvKeys:   sortedKeys(envOverrides),
 		UseSafePath:      true,
 	})
+	lifecycleSummary := ParseInstallLifecycle(result)
+	m.logger.Debug(
+		"install adapter parsed lifecycle summary",
+		"script_path", scriptPath,
+		"provider", normalizeLogValue(lifecycleSummary.Provider, provider),
+		"install_dir", normalizeLogValue(lifecycleSummary.InstallDir, installDir),
+		"public_endpoint", normalizeLogValue(lifecycleSummary.PublicEndpoint, "n/a"),
+		"api_endpoint", normalizeLogValue(lifecycleSummary.APIEndpoint, "n/a"),
+		"config_path", normalizeLogValue(lifecycleSummary.ConfigPath, "n/a"),
+		"proxy_link_present", lifecycleSummary.ProxyLinkPresent,
+		"sensitive_output_present", lifecycleSummary.SensitiveOutputPresent,
+		"parse_diagnostics", lifecycleSummary.ParseDiagnostics,
+	)
 	if runErr != nil {
 		m.logger.Error(
 			"install adapter failed",
 			"script_path", scriptPath,
-			"provider", provider,
-			"install_dir", installDir,
+			"provider", normalizeLogValue(lifecycleSummary.Provider, provider),
+			"install_dir", normalizeLogValue(lifecycleSummary.InstallDir, installDir),
+			"public_endpoint", normalizeLogValue(lifecycleSummary.PublicEndpoint, "n/a"),
+			"proxy_link_present", lifecycleSummary.ProxyLinkPresent,
+			"sensitive_output_present", lifecycleSummary.SensitiveOutputPresent,
 			"elapsed", result.Elapsed,
 			"exit_status", result.ExitCode,
 			"stderr_summary", result.StderrSummary,
@@ -291,8 +385,13 @@ func (m *Manager) Install(ctx context.Context, options InstallOptions) (execadap
 	m.logger.Info(
 		"install adapter finish",
 		"script_path", scriptPath,
-		"provider", provider,
-		"install_dir", installDir,
+		"provider", normalizeLogValue(lifecycleSummary.Provider, provider),
+		"install_dir", normalizeLogValue(lifecycleSummary.InstallDir, installDir),
+		"public_endpoint", normalizeLogValue(lifecycleSummary.PublicEndpoint, "n/a"),
+		"api_endpoint", normalizeLogValue(lifecycleSummary.APIEndpoint, "n/a"),
+		"config_path", normalizeLogValue(lifecycleSummary.ConfigPath, "n/a"),
+		"proxy_link_present", lifecycleSummary.ProxyLinkPresent,
+		"sensitive_output_present", lifecycleSummary.SensitiveOutputPresent,
 		"elapsed", result.Elapsed,
 		"exit_status", result.ExitCode,
 		"stderr_summary", result.StderrSummary,
@@ -650,45 +749,325 @@ func (m *Manager) recheckRuntimeStateAtExecution(snapshot *runtime.RuntimeInstal
 	return rechecked, nil
 }
 
-func resolveRepoRoot(explicitRepoRoot string) (string, error) {
+func resolveRepoRoot(explicitRepoRoot string, repoRootFromEnv bool) (string, error) {
+	autoCandidates := collectAutoRepoRootCandidates()
+	autoRoots, autoFailures := resolveRepoRootCandidates(autoCandidates)
+
 	repoRoot := strings.TrimSpace(explicitRepoRoot)
-	if repoRoot == "" {
-		cwd, err := os.Getwd()
+	if repoRoot != "" {
+		resolved, err := validateRepoRootCandidate(repoRoot, "explicit manager repo root", false)
 		if err != nil {
-			return "", fmt.Errorf("unable to determine current directory: %w", err)
+			return "", err
 		}
-		repoRoot = cwd
+		if repoRootFromEnv {
+			if err := validateEnvRepoRootTrustBoundary(resolved, autoRoots); err != nil {
+				return "", err
+			}
+		}
+		return resolved, nil
 	}
 
-	absRepoRoot, err := filepath.Abs(repoRoot)
-	if err != nil {
-		return "", fmt.Errorf("unable to resolve repository root %q: %w", repoRoot, err)
+	if len(autoRoots) > 0 {
+		return autoRoots[0], nil
 	}
-	absRepoRoot = filepath.Clean(absRepoRoot)
 
-	resolved, err := discoverRepoRoot(absRepoRoot)
+	if len(autoFailures) == 0 {
+		return "", errors.New("unable to resolve repository root from trusted runtime locations")
+	}
+	return "", fmt.Errorf(
+		"unable to resolve repository root from trusted runtime locations; set ManagerOptions.RepoRoot explicitly: %s",
+		strings.Join(autoFailures, " | "),
+	)
+}
+
+func resolveRepoRootFromExecutable(executablePath string) (string, error) {
+	candidates, err := collectRepoRootCandidatesFromExecutable(executablePath)
 	if err != nil {
 		return "", err
 	}
-	return resolved, nil
+
+	roots, failures := resolveRepoRootCandidates(candidates)
+	if len(roots) > 0 {
+		return roots[0], nil
+	}
+	if len(failures) == 0 {
+		return "", fmt.Errorf(
+			"unable to resolve repository root from executable path %q; set ManagerOptions.RepoRoot explicitly",
+			strings.TrimSpace(executablePath),
+		)
+	}
+	return "", fmt.Errorf(
+		"unable to resolve repository root from executable path %q; set ManagerOptions.RepoRoot explicitly: %s",
+		strings.TrimSpace(executablePath),
+		strings.Join(failures, " | "),
+	)
 }
 
-func discoverRepoRoot(start string) (string, error) {
-	current := filepath.Clean(start)
+func collectAutoRepoRootCandidates() []string {
+	candidates := make([]string, 0, 32)
 
-	for {
-		if hasScriptSet(current) {
-			return current, nil
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = appendRepoRootCandidatesFromSeed(candidates, cwd)
+	}
+
+	if executablePath, err := os.Executable(); err == nil {
+		if executableCandidates, collectErr := collectRepoRootCandidatesFromExecutable(executablePath); collectErr == nil {
+			candidates = append(candidates, executableCandidates...)
 		}
+	}
 
+	if _, sourceFile, _, ok := goruntime.Caller(0); ok {
+		candidates = appendRepoRootCandidatesFromSeed(candidates, sourceFile)
+	}
+
+	return deduplicateCandidatePaths(candidates)
+}
+
+func collectRepoRootCandidatesFromExecutable(executablePath string) ([]string, error) {
+	trimmedPath := strings.TrimSpace(executablePath)
+	if trimmedPath == "" {
+		return nil, errors.New("unable to resolve repository root: executable path is empty")
+	}
+
+	absolutePath, err := filepath.Abs(trimmedPath)
+	if err != nil {
+		return nil, fmt.Errorf("unable to resolve executable path %q: %w", trimmedPath, err)
+	}
+	absolutePath = filepath.Clean(absolutePath)
+	if err := validatePathChainNoSymlinks(absolutePath); err != nil {
+		return nil, fmt.Errorf("unable to trust executable path %q: %w", absolutePath, err)
+	}
+
+	executableDir := filepath.Dir(absolutePath)
+	candidates := appendRepoRootCandidatesFromSeed(make([]string, 0, 16), executableDir)
+	for _, hint := range trustedRepoRootLayoutHints {
+		relative := strings.TrimSpace(hint)
+		if relative == "" {
+			continue
+		}
+		candidates = append(candidates, filepath.Clean(filepath.Join(executableDir, relative)))
+	}
+	return deduplicateCandidatePaths(candidates), nil
+}
+
+func appendRepoRootCandidatesFromSeed(target []string, seedPath string) []string {
+	trimmed := strings.TrimSpace(seedPath)
+	if trimmed == "" {
+		return target
+	}
+
+	absolutePath, err := filepath.Abs(trimmed)
+	if err != nil {
+		return target
+	}
+	absolutePath = filepath.Clean(absolutePath)
+	if info, statErr := os.Stat(absolutePath); statErr == nil && !info.IsDir() {
+		absolutePath = filepath.Dir(absolutePath)
+	}
+
+	current := absolutePath
+	for {
+		target = append(target, current)
 		parent := filepath.Dir(current)
-		if parent == current {
+		if canonicalPathKey(parent) == canonicalPathKey(current) {
 			break
 		}
 		current = parent
 	}
 
-	return "", fmt.Errorf("unable to discover repository root from %s", start)
+	return target
+}
+
+func deduplicateCandidatePaths(candidates []string) []string {
+	visited := map[string]struct{}{}
+	deduplicated := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		trimmed := strings.TrimSpace(candidate)
+		if trimmed == "" {
+			continue
+		}
+		absolutePath, err := filepath.Abs(trimmed)
+		if err != nil {
+			continue
+		}
+		normalized := filepath.Clean(absolutePath)
+		key := canonicalPathKey(normalized)
+		if key == "" {
+			continue
+		}
+		if _, exists := visited[key]; exists {
+			continue
+		}
+		visited[key] = struct{}{}
+		deduplicated = append(deduplicated, normalized)
+	}
+	return deduplicated
+}
+
+func resolveRepoRootCandidates(candidates []string) ([]string, []string) {
+	roots := make([]string, 0, len(candidates))
+	failures := make([]string, 0, len(candidates))
+	for _, candidate := range deduplicateCandidatePaths(candidates) {
+		resolved, err := validateRepoRootCandidate(candidate, "auto-discovered script root", false)
+		if err != nil {
+			failures = append(failures, err.Error())
+			continue
+		}
+		roots = append(roots, resolved)
+	}
+	return deduplicateCandidatePaths(roots), failures
+}
+
+func validateEnvRepoRootTrustBoundary(repoRoot string, discoveredRoots []string) error {
+	absoluteRoot := filepath.Clean(repoRoot)
+	if !filepath.IsAbs(absoluteRoot) {
+		return fmt.Errorf("MTPROXY_SCRIPTS_ROOT must be an absolute path: %q", repoRoot)
+	}
+
+	allowedRoots := deduplicateCandidatePaths(append([]string{}, discoveredRoots...))
+	for _, candidate := range trustedLifecycleScriptRootCandidates {
+		allowedRoots = append(allowedRoots, filepath.Clean(filepath.FromSlash(candidate)))
+	}
+	allowedRoots = deduplicateCandidatePaths(allowedRoots)
+
+	allowed := false
+	for _, trustedRoot := range allowedRoots {
+		if canonicalPathKey(absoluteRoot) == canonicalPathKey(trustedRoot) || isPathWithin(trustedRoot, absoluteRoot) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return fmt.Errorf(
+			"MTPROXY_SCRIPTS_ROOT %q is outside trusted script directories [%s]",
+			absoluteRoot,
+			strings.Join(allowedRoots, ", "),
+		)
+	}
+
+	checkedPaths := []string{
+		absoluteRoot,
+		filepath.Join(absoluteRoot, installScriptName),
+		filepath.Join(absoluteRoot, updateScriptName),
+		filepath.Join(absoluteRoot, uninstallScriptName),
+	}
+	for _, path := range checkedPaths {
+		if err := ensurePathOwnershipTrusted(path); err != nil {
+			return fmt.Errorf("MTPROXY_SCRIPTS_ROOT trust check failed: %w", err)
+		}
+		if err := ensurePathPermissionsTrusted(path); err != nil {
+			return fmt.Errorf("MTPROXY_SCRIPTS_ROOT trust check failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func ensurePathOwnershipTrusted(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("unable to inspect ownership of %q: %w", path, err)
+	}
+
+	ownerUID, ok := readPathOwnerUID(info)
+	if !ok {
+		return fmt.Errorf("unable to determine owner for %q", path)
+	}
+	currentUID, currentOK := currentUserUID()
+	if !currentOK {
+		return fmt.Errorf("unable to determine current process owner for %q", path)
+	}
+	if ownerUID != 0 && ownerUID != currentUID {
+		return fmt.Errorf("owner of %q is untrusted uid=%d", path, ownerUID)
+	}
+	return nil
+}
+
+func ensurePathPermissionsTrusted(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("unable to inspect permissions of %q: %w", path, err)
+	}
+
+	if info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("%q is writable by group/others (mode=%#o)", path, info.Mode().Perm())
+	}
+	return nil
+}
+
+func readPathOwnerUID(info os.FileInfo) (uint64, bool) {
+	if info == nil || info.Sys() == nil {
+		return 0, false
+	}
+
+	value := reflect.ValueOf(info.Sys())
+	if value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return 0, false
+		}
+		value = value.Elem()
+	}
+	if !value.IsValid() {
+		return 0, false
+	}
+
+	uidField := value.FieldByName("Uid")
+	if !uidField.IsValid() {
+		return 0, false
+	}
+
+	switch uidField.Kind() {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return uidField.Uint(), true
+	default:
+		return 0, false
+	}
+}
+
+func currentUserUID() (uint64, bool) {
+	current, err := user.Current()
+	if err != nil {
+		return 0, false
+	}
+	uid := strings.TrimSpace(current.Uid)
+	if uid == "" {
+		return 0, false
+	}
+	numericUID, parseErr := strconv.ParseUint(uid, 10, 64)
+	if parseErr != nil {
+		return 0, false
+	}
+	return numericUID, true
+}
+
+func validateRepoRootCandidate(candidatePath string, source string, strictPermissions bool) (string, error) {
+	trimmed := strings.TrimSpace(candidatePath)
+	if trimmed == "" {
+		return "", fmt.Errorf("%s is empty", source)
+	}
+
+	absolutePath, err := filepath.Abs(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("%s %q cannot be resolved: %w", source, candidatePath, err)
+	}
+	absolutePath = filepath.Clean(absolutePath)
+
+	if err := requireRuntimeDirectory(absolutePath, "repository root"); err != nil {
+		return "", fmt.Errorf("%s %q is invalid: %w", source, absolutePath, err)
+	}
+	if err := validatePathChainNoSymlinks(absolutePath); err != nil {
+		return "", fmt.Errorf("%s %q is unsafe: %w", source, absolutePath, err)
+	}
+	if !hasScriptSet(absolutePath) {
+		return "", fmt.Errorf("%s %q does not contain required lifecycle scripts", source, absolutePath)
+	}
+	if strictPermissions {
+		if err := ensurePathPermissionsTrusted(absolutePath); err != nil {
+			return "", fmt.Errorf("%s %q failed strict permissions check: %w", source, absolutePath, err)
+		}
+	}
+
+	return absolutePath, nil
 }
 
 func hasScriptSet(path string) bool {
@@ -762,6 +1141,142 @@ func normalizeProvider(provider runtime.Provider) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported provider for script adapter: %q", provider)
 	}
+}
+
+func ParseInstallLifecycle(result execadapter.Result) InstallLifecycleSummary {
+	summary := InstallLifecycleSummary{
+		OperatorHints:    make([]string, 0, 4),
+		ParseDiagnostics: make([]string, 0, 4),
+	}
+
+	lines := splitLifecycleLines(result.Stdout)
+	expectProxyLink := false
+	for _, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			expectProxyLink = false
+			continue
+		}
+
+		switch {
+		case strings.EqualFold(line, "Proxy link:"):
+			expectProxyLink = true
+			summary.SensitiveOutputPresent = true
+			continue
+		case strings.HasPrefix(line, "Install dir:"):
+			summary.InstallDir = parseLifecycleField(line, "Install dir:")
+			expectProxyLink = false
+			continue
+		case strings.HasPrefix(line, "Provider:"):
+			summary.Provider = parseLifecycleField(line, "Provider:")
+			expectProxyLink = false
+			continue
+		case strings.HasPrefix(line, "Public endpoint:"):
+			summary.PublicEndpoint = parseLifecycleField(line, "Public endpoint:")
+			expectProxyLink = false
+			continue
+		case strings.HasPrefix(line, "API:"):
+			summary.APIEndpoint = parseLifecycleField(line, "API:")
+			expectProxyLink = false
+			continue
+		case strings.HasPrefix(line, "Config:"):
+			summary.ConfigPath = parseLifecycleField(line, "Config:")
+			expectProxyLink = false
+			continue
+		case strings.HasPrefix(line, "Logs:"):
+			summary.LogsHint = parseLifecycleField(line, "Logs:")
+			expectProxyLink = false
+			continue
+		case strings.HasPrefix(line, "Secret:"):
+			summary.Secret = parseLifecycleField(line, "Secret:")
+			if summary.Secret != "" {
+				summary.SensitiveOutputPresent = true
+			}
+			expectProxyLink = false
+			continue
+		}
+
+		if strings.HasPrefix(line, "[FIX]") {
+			appendUniqueText(&summary.OperatorHints, line)
+			expectProxyLink = false
+			continue
+		}
+
+		if expectProxyLink && installProxyLinkPattern.MatchString(line) {
+			summary.ProxyLink = line
+			summary.ProxyLinkPresent = true
+			summary.SensitiveOutputPresent = true
+			expectProxyLink = false
+			continue
+		}
+		expectProxyLink = false
+	}
+
+	if !summary.ProxyLinkPresent {
+		for _, rawLine := range lines {
+			line := strings.TrimSpace(rawLine)
+			if installProxyLinkPattern.MatchString(line) {
+				summary.ProxyLink = line
+				summary.ProxyLinkPresent = true
+				summary.SensitiveOutputPresent = true
+				break
+			}
+		}
+	}
+
+	if strings.TrimSpace(summary.Provider) == "" {
+		appendUniqueText(&summary.ParseDiagnostics, "provider marker is missing in install output")
+	}
+	if strings.TrimSpace(summary.InstallDir) == "" {
+		appendUniqueText(&summary.ParseDiagnostics, "install dir marker is missing in install output")
+	}
+	if strings.TrimSpace(summary.PublicEndpoint) == "" {
+		appendUniqueText(&summary.ParseDiagnostics, "public endpoint marker is missing in install output")
+	}
+	if strings.TrimSpace(summary.ConfigPath) == "" {
+		appendUniqueText(&summary.ParseDiagnostics, "config path marker is missing in install output")
+	}
+
+	return summary
+}
+
+func splitLifecycleLines(raw string) []string {
+	normalized := strings.ReplaceAll(raw, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	if normalized == "" {
+		return nil
+	}
+	return strings.Split(normalized, "\n")
+}
+
+func parseLifecycleField(line string, prefix string) string {
+	value := strings.TrimPrefix(line, prefix)
+	return strings.TrimSpace(value)
+}
+
+func appendUniqueText(target *[]string, value string) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return
+	}
+	for _, existing := range *target {
+		if existing == trimmed {
+			return
+		}
+	}
+	*target = append(*target, trimmed)
+}
+
+func normalizeLogValue(value string, fallback string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed != "" {
+		return trimmed
+	}
+	trimmedFallback := strings.TrimSpace(fallback)
+	if trimmedFallback != "" {
+		return trimmedFallback
+	}
+	return "n/a"
 }
 
 func putIfNotEmpty(values map[string]string, key string, value string) {
@@ -908,7 +1423,12 @@ func sanitizeImageReferenceValue(field string, value string) (string, error) {
 	return value, nil
 }
 
-func sanitizeEnvOverrides(commandName string, overrides map[string]string, allowedKeys []string) (map[string]string, error) {
+func sanitizeEnvOverrides(
+	commandName string,
+	overrides map[string]string,
+	allowedKeys []string,
+	policy envOverrideTrustPolicy,
+) (map[string]string, error) {
 	allowed := make(map[string]struct{}, len(allowedKeys))
 	for _, key := range allowedKeys {
 		normalized := strings.ToUpper(strings.TrimSpace(key))
@@ -948,7 +1468,93 @@ func sanitizeEnvOverrides(commandName string, overrides map[string]string, allow
 		sanitized[trimmedKey] = trimmedValue
 	}
 
+	if err := enforceTrustBoundaryEnvOverridePolicy(commandName, sanitized, policy); err != nil {
+		return nil, err
+	}
+
 	return sanitized, nil
+}
+
+func enforceTrustBoundaryEnvOverridePolicy(
+	commandName string,
+	overrides map[string]string,
+	policy envOverrideTrustPolicy,
+) error {
+	trustBoundaryKeys := make([]string, 0, len(overrides))
+	for key := range overrides {
+		normalized := normalizeEnvKey(key)
+		if !isTrustBoundaryEnvOverrideKey(normalized) {
+			continue
+		}
+		trustBoundaryKeys = append(trustBoundaryKeys, normalized)
+	}
+	sort.Strings(trustBoundaryKeys)
+	trustBoundaryKeys = uniqueStrings(trustBoundaryKeys)
+
+	if len(trustBoundaryKeys) == 0 {
+		return nil
+	}
+
+	if !policy.AllowTrustBoundaryEnv {
+		return fmt.Errorf(
+			"%s env override keys cross trust boundary and require explicit allow flag: %s",
+			commandName,
+			strings.Join(trustBoundaryKeys, ", "),
+		)
+	}
+
+	privilegedContext := strings.TrimSpace(policy.PrivilegedContext)
+	if privilegedContext != "" {
+		return fmt.Errorf(
+			"%s env override keys cross trust boundary and are blocked in privileged context %q: %s",
+			commandName,
+			privilegedContext,
+			strings.Join(trustBoundaryKeys, ", "),
+		)
+	}
+
+	return nil
+}
+
+func isTrustBoundaryEnvOverrideKey(normalizedKey string) bool {
+	if normalizedKey == "" {
+		return false
+	}
+	if _, ok := trustBoundaryEnvOverrideKeyAllowlist[normalizedKey]; ok {
+		return true
+	}
+	for _, prefix := range trustBoundaryEnvOverridePrefixAllowlist {
+		normalizedPrefix := normalizeEnvKey(prefix)
+		if normalizedPrefix == "" {
+			continue
+		}
+		if strings.HasPrefix(normalizedKey, normalizedPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func detectPrivilegedExecutionContext() string {
+	if value, ok := os.LookupEnv("SUDO_UID"); ok && strings.TrimSpace(value) != "" {
+		return "sudo"
+	}
+	if value, ok := os.LookupEnv("SUDO_USER"); ok && strings.TrimSpace(value) != "" {
+		return "sudo"
+	}
+
+	if value, ok := os.LookupEnv("CI"); ok {
+		trimmed := strings.TrimSpace(strings.ToLower(value))
+		if trimmed != "" && trimmed != "0" && trimmed != "false" && trimmed != "no" {
+			return "ci"
+		}
+	}
+
+	if uid, ok := currentUserUID(); ok && uid == 0 {
+		return "uid=0"
+	}
+
+	return ""
 }
 
 func isAllowedOptInEnvKey(normalizedKey string, allowlist map[string]struct{}, prefixAllowlist []string) bool {
@@ -984,6 +1590,26 @@ func mergeAllowedEnvKeys(groups ...[]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
 }
 
 func sortedKeys(values map[string]string) []string {

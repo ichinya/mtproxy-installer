@@ -115,7 +115,15 @@ func routeCommand(ctx commandContext) error {
 		return runStatus(ctx)
 	case "link":
 		return runLink(ctx)
-	case "install", "update", "uninstall":
+	case "logs":
+		return runLogs(ctx)
+	case "restart":
+		return runRestart(ctx)
+	case "install":
+		return runInstall(ctx)
+	case "update":
+		return runUpdate(ctx)
+	case "uninstall":
 		return runPlaceholder(ctx)
 	default:
 		_ = runHelp(ctx)
@@ -164,11 +172,19 @@ func runHelp(ctx commandContext) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(ctx.Stdout, "  install   Placeholder command (not implemented)")
+	_, err = fmt.Fprintln(ctx.Stdout, "  logs      Stream compose logs for the detected provider service")
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(ctx.Stdout, "  update    Placeholder command (not implemented)")
+	_, err = fmt.Fprintln(ctx.Stdout, "  restart   Restart provider service with post-check summary")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(ctx.Stdout, "  install   Run install lifecycle via install.sh wrapper")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(ctx.Stdout, "  update    Run update lifecycle via update.sh wrapper")
 	if err != nil {
 		return err
 	}

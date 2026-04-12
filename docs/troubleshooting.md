@@ -358,21 +358,29 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/unin
 - [Configuration](configuration.md) - параметры, которые чаще всего приходится корректировать
 - [Reverse Proxy](reverse-proxy.md) - схемы, где часто проявляются сетевые проблемы
 
-## Use `mtproxy status` and `mtproxy link` for diagnostics
+## Use `mtproxy` CLI (`status`, `link`, `logs`, `restart`) for diagnostics
 
-When checking runtime state, prefer read-only CLI commands before restart actions:
+When checking runtime state, prefer CLI commands before manual compose operations:
 
 ```bash
 cd app
 go run ./cmd/mtproxy status
 go run ./cmd/mtproxy link
+go run ./cmd/mtproxy logs --tail 100 --follow
+go run ./cmd/mtproxy restart
 ```
 
 How to interpret logs and output:
-- `INFO`: final runtime summary for healthy state.
-- `WARN`: degraded signals (compose/API mismatch, unsupported provider, link unavailable).
-- `ERROR`: status resolution failed and a safe summary could not be produced.
+- `INFO`: lifecycle and healthy summary.
+- `WARN`: degraded signals (compose/API mismatch, unsupported provider, link unavailable, or degraded restart post-check).
+- `ERROR`: command failed and runtime-safe summary could not be produced.
+
+`restart` semantics:
+- successful `docker compose restart` exit code is not enough for healthy result;
+- post-check uses `docker compose ps --all <service>` and can classify runtime as degraded (`Exited`, `compose_ps_mixed_container_states`, or other non-running states);
+- in this case command emits operator-facing warning summary and `WARN` structured logs.
 
 Security boundary:
 - full proxy links are expected only in `link` stdout;
-- logs and `status` output keep proxy links redacted.
+- `status`/structured logs keep proxy links redacted;
+- raw container logs from `mtproxy logs` are streamed directly to stdout/stderr and are not mirrored to structured `stderr_summary` fields.

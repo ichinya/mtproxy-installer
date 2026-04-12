@@ -140,11 +140,16 @@ type runtimeExecutionSnapshot struct {
 }
 
 type ComposeCommand struct {
-	Subcommand   string
-	Args         []string
-	Services     []string
-	WorkingDir   string
-	EnvOverrides map[string]string
+	Subcommand              string
+	Args                    []string
+	Services                []string
+	WorkingDir              string
+	EnvOverrides            map[string]string
+	Stdout                  io.Writer
+	Stderr                  io.Writer
+	DisableStdoutCapture    bool
+	DisableStderrCapture    bool
+	DisableStderrSummaryLog bool
 }
 
 func NewComposeAdapter(options ComposeAdapterOptions) (*ComposeAdapter, error) {
@@ -282,17 +287,20 @@ func (a *ComposeAdapter) Run(ctx context.Context, command ComposeCommand) (execa
 	)
 
 	result, runErr := a.runner.Run(ctx, execadapter.Request{
-		Command:          a.binary,
-		Args:             argv,
-		WorkingDir:       workingDir,
-		EnvOverrides:     envOverrides,
-		InheritParentEnv: false,
-		AllowedEnvKeys:   sortedKeys(envOverrides),
-		UseSafePath:      true,
+		Command:              a.binary,
+		Args:                 argv,
+		WorkingDir:           workingDir,
+		EnvOverrides:         envOverrides,
+		InheritParentEnv:     false,
+		AllowedEnvKeys:       sortedKeys(envOverrides),
+		UseSafePath:          true,
+		Stdout:               command.Stdout,
+		Stderr:               command.Stderr,
+		DisableStdoutCapture: command.DisableStdoutCapture,
+		DisableStderrCapture: command.DisableStderrCapture,
 	})
 	if runErr != nil {
-		a.logger.Error(
-			"compose adapter failed",
+		failureLogArgs := []any{
 			"binary", a.binary,
 			"subcommand", subcommand,
 			"services", services,
@@ -303,14 +311,17 @@ func (a *ComposeAdapter) Run(ctx context.Context, command ComposeCommand) (execa
 			"provider", runtimeSnapshot.provider,
 			"elapsed", result.Elapsed,
 			"exit_status", result.ExitCode,
-			"stderr_summary", result.StderrSummary,
-			"error", execadapter.RedactText(runErr.Error()),
-		)
+		}
+		if !command.DisableStderrSummaryLog {
+			failureLogArgs = append(failureLogArgs, "stderr_summary", result.StderrSummary)
+		}
+		failureLogArgs = append(failureLogArgs, "error", execadapter.RedactText(runErr.Error()))
+
+		a.logger.Error("compose adapter failed", failureLogArgs...)
 		return result, runErr
 	}
 
-	a.logger.Info(
-		"compose adapter finish",
+	finishLogArgs := []any{
 		"binary", a.binary,
 		"subcommand", subcommand,
 		"services", services,
@@ -321,8 +332,12 @@ func (a *ComposeAdapter) Run(ctx context.Context, command ComposeCommand) (execa
 		"provider", runtimeSnapshot.provider,
 		"elapsed", result.Elapsed,
 		"exit_status", result.ExitCode,
-		"stderr_summary", result.StderrSummary,
-	)
+	}
+	if !command.DisableStderrSummaryLog {
+		finishLogArgs = append(finishLogArgs, "stderr_summary", result.StderrSummary)
+	}
+
+	a.logger.Info("compose adapter finish", finishLogArgs...)
 
 	return result, nil
 }

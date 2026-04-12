@@ -42,7 +42,15 @@ func (m *Manager) Uninstall(ctx context.Context, options UninstallOptions) (exec
 	} else {
 		envOverrides["KEEP_DATA"] = "false"
 	}
-	envOverrides, err = sanitizeEnvOverrides("uninstall", envOverrides, uninstallEnvOverrideAllowlist)
+	envOverrides, err = sanitizeEnvOverrides(
+		"uninstall",
+		envOverrides,
+		uninstallEnvOverrideAllowlist,
+		envOverrideTrustPolicy{
+			AllowTrustBoundaryEnv: false,
+			PrivilegedContext:     m.privilegedExecutionScope,
+		},
+	)
 	if err != nil {
 		return execadapter.Result{}, err
 	}

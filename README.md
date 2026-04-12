@@ -112,18 +112,23 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/unin
 
 Лицензия в репозитории пока не указана.
 
-## CLI Status and Link (Read-only)
+## CLI Runtime Commands
 
-The Go CLI now provides two read-only runtime inspection commands:
+Go CLI now exposes runtime inspection and operator commands:
 
 ```bash
 cd app
 go run ./cmd/mtproxy status
 go run ./cmd/mtproxy link
+go run ./cmd/mtproxy logs --tail 50
+go run ./cmd/mtproxy restart
 ```
 
 Behavior summary:
 - `status` reconciles `.env`, `docker compose ps`, `/v1/health`, and `/v1/users` into a runtime summary.
 - `link` prints a full `tg://proxy` link only to command stdout when telemt runtime resolution succeeds.
+- `logs` tails/streams compose logs for detected provider service (`telemt` or `mtg`) and supports `--tail`, `--follow`, `--timestamps`, `--no-color`.
+- `restart` runs `docker compose restart` for detected provider service and always performs post-check with `docker compose ps --all <service>`.
+- even with successful restart exit code, `restart` emits `WARN` and degraded summary when post-check detects `Exited`/`not_running` or `unknown` (including mixed compose states).
+- raw container logs are streamed to command stdout/stderr and are not duplicated into structured CLI logs (`stderr_summary` is disabled for `logs` path).
 - non-telemt runtimes are reported as partial/unsupported with explicit WARN diagnostics.
-- logs keep proxy links redacted; full links are never logged by `status`.

@@ -171,17 +171,21 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/unin
 - [Reverse Proxy](reverse-proxy.md) - схемы с L4-routing и fallback backend
 - [Troubleshooting](troubleshooting.md) - частые проблемы после первого запуска
 
-## Go CLI runtime checks (read-only)
+## Go CLI runtime commands
 
-For operator checks, you can use the Go CLI without mutating runtime state:
+For operator checks and controlled service operations:
 
 ```bash
 cd app
 go run ./cmd/mtproxy status
 go run ./cmd/mtproxy link
+go run ./cmd/mtproxy logs --tail 50
+go run ./cmd/mtproxy restart
 ```
 
 Notes:
 - `status` reports install dir, provider, compose state, API health, and link availability.
 - `link` can print a full `tg://proxy` URL only in its own stdout path.
+- `logs` uses detected provider service by default (`telemt`/`mtg`), supports `--follow` for live tail, and keeps raw stream out of structured command logs.
+- `restart` always performs post-check via `docker compose ps --all <service>`; successful compose restart can still end with degraded `WARN` when compose post-state is `Exited`, mixed, not-running, or unknown.
 - when provider is not `telemt`, commands report partial runtime details and unsupported-provider warnings.

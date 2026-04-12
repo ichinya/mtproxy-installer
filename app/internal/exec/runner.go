@@ -69,17 +69,21 @@ type Runner struct {
 }
 
 type Request struct {
-	Command            string
-	Args               []string
-	WorkingDir         string
-	EnvOverrides       map[string]string
-	InheritParentEnv   bool
-	AllowedEnvKeys     []string
-	AllowedEnvPrefixes []string
-	UseSafePath        bool
-	TrustedPath        string
-	StderrSummaryLimit int
-	LogSuccess         bool
+	Command              string
+	Args                 []string
+	WorkingDir           string
+	EnvOverrides         map[string]string
+	InheritParentEnv     bool
+	AllowedEnvKeys       []string
+	AllowedEnvPrefixes   []string
+	UseSafePath          bool
+	TrustedPath          string
+	Stdout               io.Writer
+	Stderr               io.Writer
+	DisableStdoutCapture bool
+	DisableStderrCapture bool
+	StderrSummaryLimit   int
+	LogSuccess           bool
 }
 
 type Result struct {
@@ -236,21 +240,29 @@ func (r *Runner) Run(ctx context.Context, request Request) (Result, error) {
 
 	var stdoutBuf bytes.Buffer
 	var stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+	cmd.Stdout = composeCommandOutputWriter(&stdoutBuf, request.Stdout, request.DisableStdoutCapture)
+	cmd.Stderr = composeCommandOutputWriter(&stderrBuf, request.Stderr, request.DisableStderrCapture)
 
 	runErr := cmd.Run()
 	elapsed := time.Since(startedAt)
 
-	stderr := stderrBuf.String()
 	exitCode := exitCodeFromRunErr(runErr)
+
+	stdout := ""
+	if !request.DisableStdoutCapture {
+		stdout = stdoutBuf.String()
+	}
+	stderr := ""
+	if !request.DisableStderrCapture {
+		stderr = stderrBuf.String()
+	}
 
 	result := Result{
 		Command:       command,
 		Args:          append([]string(nil), request.Args...),
 		RedactedArgs:  redactedArgs,
 		WorkingDir:    workingDir,
-		Stdout:        stdoutBuf.String(),
+		Stdout:        stdout,
 		Stderr:        stderr,
 		StderrSummary: SummarizeStderr(stderr, summaryLimit),
 		ExitCode:      exitCode,
@@ -881,4 +893,21 @@ func fallbackLogger(logger *slog.Logger) *slog.Logger {
 		return logger
 	}
 	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelInfo}))
+}
+
+func composeCommandOutputWriter(buffer *bytes.Buffer, stream io.Writer, disableCapture bool) io.Writer {
+	writers := make([]io.Writer, 0, 2)
+	if !disableCapture {
+		writers = append(writers, buffer)
+	}
+	if stream != nil {
+		writers = append(writers, stream)
+	}
+	if len(writers) == 0 {
+		return io.Discard
+	}
+	if len(writers) == 1 {
+		return writers[0]
+	}
+	return io.MultiWriter(writers...)
 }
