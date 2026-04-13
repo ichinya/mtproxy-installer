@@ -5,6 +5,123 @@ import (
 	"testing"
 )
 
+func TestHealthEnvelopeParseClassAndDegradedReason(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		envelope   HealthEnvelope
+		wantClass  HealthParseClass
+		wantReason string
+	}{
+		{
+			name: "missing ok marker is incomplete",
+			envelope: HealthEnvelope{
+				Data: &HealthData{
+					Status:   "ok",
+					ReadOnly: boolPointerTypesTest(true),
+				},
+			},
+			wantClass:  HealthParseClassIncomplete,
+			wantReason: "missing_ok",
+		},
+		{
+			name: "missing data marker is incomplete",
+			envelope: HealthEnvelope{
+				OK: boolPointerTypesTest(true),
+			},
+			wantClass:  HealthParseClassIncomplete,
+			wantReason: "missing_data",
+		},
+		{
+			name: "missing status marker is incomplete",
+			envelope: HealthEnvelope{
+				OK: boolPointerTypesTest(true),
+				Data: &HealthData{
+					ReadOnly: boolPointerTypesTest(true),
+				},
+			},
+			wantClass:  HealthParseClassIncomplete,
+			wantReason: "missing_status",
+		},
+		{
+			name: "missing read_only marker is incomplete",
+			envelope: HealthEnvelope{
+				OK: boolPointerTypesTest(true),
+				Data: &HealthData{
+					Status: "ok",
+				},
+			},
+			wantClass:  HealthParseClassIncomplete,
+			wantReason: "missing_read_only",
+		},
+		{
+			name: "complete payload is healthy parse class",
+			envelope: HealthEnvelope{
+				OK: boolPointerTypesTest(true),
+				Data: &HealthData{
+					Status:   "ok",
+					ReadOnly: boolPointerTypesTest(false),
+				},
+			},
+			wantClass:  HealthParseClassComplete,
+			wantReason: "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := testCase.envelope.ParseClass(); got != testCase.wantClass {
+				t.Fatalf("unexpected parse class: got %q want %q", got, testCase.wantClass)
+			}
+			if got := testCase.envelope.DegradedReason(); got != testCase.wantReason {
+				t.Fatalf("unexpected degraded reason: got %q want %q", got, testCase.wantReason)
+			}
+		})
+	}
+}
+
+func TestHealthEnvelopeIsHealthyRequiresCompleteAndOkStatus(t *testing.T) {
+	t.Parallel()
+
+	if (HealthEnvelope{}).IsHealthy() {
+		t.Fatalf("expected empty envelope to be unhealthy")
+	}
+
+	if (HealthEnvelope{
+		OK: boolPointerTypesTest(false),
+		Data: &HealthData{
+			Status:   "ok",
+			ReadOnly: boolPointerTypesTest(true),
+		},
+	}).IsHealthy() {
+		t.Fatalf("expected ok=false envelope to be unhealthy")
+	}
+
+	if (HealthEnvelope{
+		OK: boolPointerTypesTest(true),
+		Data: &HealthData{
+			Status:   "degraded",
+			ReadOnly: boolPointerTypesTest(true),
+		},
+	}).IsHealthy() {
+		t.Fatalf("expected non-ok status envelope to be unhealthy")
+	}
+
+	if !(HealthEnvelope{
+		OK: boolPointerTypesTest(true),
+		Data: &HealthData{
+			Status:   "OK",
+			ReadOnly: boolPointerTypesTest(true),
+		},
+	}).IsHealthy() {
+		t.Fatalf("expected complete healthy envelope to be healthy")
+	}
+}
+
 func TestUsersEnvelopeSelectStartupLinkVariants(t *testing.T) {
 	t.Parallel()
 
@@ -251,4 +368,8 @@ func TestIsUsableProxyLinkStrictValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func boolPointerTypesTest(value bool) *bool {
+	return &value
 }

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	execadapter "mtproxy-installer/app/internal/exec"
 )
 
 const (
@@ -22,9 +24,7 @@ const (
 )
 
 var (
-	envKeyPattern       = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	secretKeyPattern    = regexp.MustCompile(`(?i)(secret|token|password|passphrase|private_key|api_key|apikey)`)
-	proxyLinkEnvPattern = regexp.MustCompile(`(?i)tg://proxy\?[^\s]+|https://t\.me/proxy\?\S+`)
+	envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
 type EnvFile struct {
@@ -136,7 +136,7 @@ func parseEnvLine(raw string) (key string, value string, skip bool, err error) {
 
 	eqPos := strings.Index(trimmed, "=")
 	if eqPos <= 0 {
-		return "", "", false, fmt.Errorf("malformed env line %q: expected KEY=VALUE", trimmed)
+		return "", "", false, fmt.Errorf("malformed env line: expected KEY=VALUE")
 	}
 
 	key = strings.TrimSpace(trimmed[:eqPos])
@@ -263,16 +263,5 @@ func (e *EnvFile) intValue(key string) (int, bool, error) {
 }
 
 func redactEnvValue(key string, value string) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return ""
-	}
-
-	if secretKeyPattern.MatchString(key) {
-		return "[redacted]"
-	}
-	if proxyLinkEnvPattern.MatchString(trimmed) {
-		return "[redacted-proxy-link]"
-	}
-	return trimmed
+	return execadapter.RedactValue(key, value)
 }

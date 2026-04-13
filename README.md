@@ -68,6 +68,7 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/inst
 | [Installation Strategy](docs/installation-strategy.md) | План эволюции installer-а и будущего selector-а          |
 | [Reverse Proxy](docs/reverse-proxy.md)                 | Схемы с `nginx stream` и Traefik TCP                     |
 | [Troubleshooting](docs/troubleshooting.md)             | Практические проблемы и рабочие обходы                   |
+| [App CLI README](app/README.md)                        | Контракт нового Go `app/` слоя и операторские команды    |
 
 ## Дополнительно
 
@@ -114,25 +115,49 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/unin
 
 Лицензия в репозитории пока не указана.
 
-## CLI Runtime Commands
+## Go CLI app-layer (`app/`)
 
-Go CLI now exposes runtime inspection and operator commands:
+`app/` — это дополнительный операторский слой поверх Bash-first runtime, а не замена `install.sh`, `update.sh` и `uninstall.sh`.
+
+Текущие границы:
+- CLI ориентирован на telemt-first path.
+- provider selector как отдельный UX в CLI отложен.
+- `status`/`link` дают полный happy path только для `telemt`.
+- calls остаются non-goal для всего проекта, включая новый app-layer.
+
+### Сборка и запуск
 
 ```bash
 cd app
-go run ./cmd/mtproxy status
-go run ./cmd/mtproxy link
-go run ./cmd/mtproxy logs --tail 50
-go run ./cmd/mtproxy restart
-go run ./cmd/mtproxy uninstall --yes
+go test ./...
+go build ./cmd/mtproxy
+go run ./cmd/mtproxy help
 ```
 
-Behavior summary:
-- `status` reconciles `.env`, `docker compose ps`, `/v1/health`, and `/v1/users` into a runtime summary.
-- `link` prints a full `tg://proxy` link only to command stdout when telemt runtime resolution succeeds.
-- `logs` tails/streams compose logs for detected provider service (`telemt` or `mtg`) and supports `--tail`, `--follow`, `--timestamps`, `--no-color`.
-- `restart` runs `docker compose restart` for detected provider service and always performs post-check with `docker compose ps --all <service>`.
-- even with successful restart exit code, `restart` emits `WARN` and degraded summary when post-check detects `Exited`/`not_running` or `unknown` (including mixed compose states).
-- `uninstall` requires explicit `--yes`, logs destructive intent and preflight checks, keeps `--keep-data` semantics, and is explicitly `telemt-only` in v1.
-- raw container logs are streamed to command stdout/stderr and are not duplicated into structured CLI logs (`stderr_summary` is disabled for `logs` path).
-- non-telemt runtimes are reported as partial/unsupported with explicit WARN diagnostics.
+### Поддерживаемые команды
+
+| Команда | Что делает | Граница поддержки и чувствительность вывода |
+| --- | --- | --- |
+| `help` | Печатает справку CLI | operator-safe |
+| `version` | Печатает build metadata | operator-safe |
+| `status` | Сводка runtime (`.env`, `compose`, `/v1/health`, `/v1/users`) | telemt-first; для non-telemt даёт partial summary с `WARN`; ссылки редактируются |
+| `link` | Печатает прокси-ссылку | единственная команда, где полный `tg://proxy` целенаправленно уходит в `stdout` |
+| `logs` | Стримит raw `docker compose logs` | может содержать чувствительные данные из контейнера; не зеркалится в structured `stderr_summary` |
+| `restart` | `compose restart` + post-check (`compose ps --all`) | при деградации post-check завершает с операторским `WARN` |
+| `install` | Обёртка над `install.sh` | telemt-first; structured output redacted, полный link не печатается |
+| `update` | Обёртка над `update.sh` | обновляет только установленный runtime (без selector parity); operator-safe summary |
+| `uninstall` | Обёртка над `uninstall.sh` | v1 `telemt-only`, обязателен `--yes`, ранний отказ для mismatch/unsupported |
+
+### Логи CLI
+
+- По умолчанию development-build пишет verbose lifecycle-логи в `stderr` (`DEBUG`), production-build — `INFO`.
+- Уровень можно переопределить через `MTPROXY_LOG_LEVEL` (`debug`, `info`, `warn`, `error`).
+- `INFO` — нормальные этапы lifecycle и успешное завершение.
+- `WARN` — ожидаемая деградация/operator caveat: unsupported provider fallback, недоступный link, degraded restart post-check, отказ uninstall без `--yes`.
+- `ERROR` — команда не смогла завершиться корректно.
+
+### Граница по секретам
+
+- `mtproxy link` — осознанный путь вывода полного proxy link в `stdout`; считайте вывод чувствительным.
+- `mtproxy logs` — raw поток контейнера; тоже считайте чувствительным.
+- `status`, `install`, `update`, `restart`, `uninstall` и structured-логи придерживаются redaction-политики.

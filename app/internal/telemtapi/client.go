@@ -113,13 +113,22 @@ func NewClient(options ClientOptions) (*Client, error) {
 
 	parsedURL, err := url.Parse(baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("telemt api base URL is invalid: %w", err)
+		return nil, errors.New("telemt api base URL is invalid")
 	}
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return nil, fmt.Errorf("telemt api base URL scheme is unsupported: %s", parsedURL.Scheme)
 	}
 	if strings.TrimSpace(parsedURL.Host) == "" {
 		return nil, errors.New("telemt api base URL host is required")
+	}
+	if parsedURL.User != nil {
+		return nil, errors.New("telemt api base URL must not include userinfo")
+	}
+	if parsedURL.RawQuery != "" || parsedURL.ForceQuery {
+		return nil, errors.New("telemt api base URL must not include query parameters")
+	}
+	if parsedURL.Fragment != "" {
+		return nil, errors.New("telemt api base URL must not include fragment")
 	}
 
 	timeout := options.Timeout

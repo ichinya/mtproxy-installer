@@ -14,6 +14,17 @@
 
 То есть «по умолчанию» мы сейчас не делаем selector и не пытаемся поддержать всё сразу. Сначала закрепляем один понятный и документированный путь.
 
+## Как в эту стратегию вписывается `app/` слой
+
+Go CLI (`app/cmd/mtproxy`) добавляет операторский интерфейс, но не меняет базовую стратегию:
+- telemt-first остаётся основным эксплуатационным path;
+- provider-neutral selector в CLI остаётся deferred scope;
+- `status`/`link` считаются telemt-aware read surface;
+- `update` следует уже установленному runtime path и не является selector-механизмом;
+- `uninstall` в v1 остаётся `telemt_only`.
+
+То есть `app/` — это новый слой управления, а не смена provider roadmap.
+
 ## Почему не делать selector сразу
 
 Причины:
@@ -125,7 +136,8 @@ providers/
 - не обещать одинаковую функциональность всем providers;
 - не прятать provider-specific caveats в общий README;
 - не смешивать reference docs и actual supported install path;
-- не делать вид, что `ad_tag` или calls работают везде одинаково.
+- не делать вид, что `ad_tag` или calls работают везде одинаково;
+- не интерпретировать появление `mtproxy install/update` как готовый first-class selector UX.
 
 ## See Also
 

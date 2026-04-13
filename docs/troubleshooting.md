@@ -363,9 +363,9 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/unin
 - [Configuration](configuration.md) - параметры, которые чаще всего приходится корректировать
 - [Reverse Proxy](reverse-proxy.md) - схемы, где часто проявляются сетевые проблемы
 
-## Use `mtproxy` CLI (`status`, `link`, `logs`, `restart`, `uninstall`) for diagnostics
+## CLI-диагностика через `mtproxy`
 
-When checking runtime state, prefer CLI commands before manual compose operations:
+Перед ручными `docker compose` командами сначала проверьте состояние через Go CLI:
 
 ```bash
 cd app
@@ -373,22 +373,38 @@ go run ./cmd/mtproxy status
 go run ./cmd/mtproxy link
 go run ./cmd/mtproxy logs --tail 100 --follow
 go run ./cmd/mtproxy restart
+go run ./cmd/mtproxy install --provider telemt
+go run ./cmd/mtproxy update
 go run ./cmd/mtproxy uninstall --yes --keep-data
 ```
 
-How to interpret logs and output:
-- `INFO`: lifecycle and healthy summary.
-- `WARN`: degraded signals (compose/API mismatch, unsupported provider, link unavailable, or degraded restart post-check).
-- `ERROR`: command failed and runtime-safe summary could not be produced.
-- `uninstall` emits `WARN` before destructive steps and `ERROR` for provider mismatch hazards or partial cleanup.
+### Как читать lifecycle-логи
 
-`restart` semantics:
-- successful `docker compose restart` exit code is not enough for healthy result;
-- post-check uses `docker compose ps --all <service>` and can classify runtime as degraded (`Exited`, `compose_ps_mixed_container_states`, or other non-running states);
-- in this case command emits operator-facing warning summary and `WARN` structured logs.
+CLI пишет structured lifecycle-логи в `stderr`.
 
-Security boundary:
-- full proxy links are expected only in `link` stdout;
-- `status`/structured logs keep proxy links redacted;
-- raw container logs from `mtproxy logs` are streamed directly to stdout/stderr and are not mirrored to structured `stderr_summary` fields.
-- `uninstall` structured output is marker-based; if markers are missing/ambiguous, the CLI fails with parse diagnostics instead of claiming success.
+- `INFO`: штатный этап (`command entry`, `lifecycle begin/finish`, healthy summary).
+- `WARN`: ожидаемая деградация или ограничение контракта:
+  - unsupported-provider fallback в `status`/`link`;
+  - недоступный proxy link для telemt runtime;
+  - degraded post-check в `restart`;
+  - preflight/confirmation caveat перед destructive `uninstall`.
+- `ERROR`: hard-fail (runtime/provider mismatch, parse failure lifecycle markers, неуспешный wrapper-run).
+
+Уровень логов:
+- dev build по умолчанию verbose (`DEBUG`);
+- production build по умолчанию `INFO`;
+- override через `MTPROXY_LOG_LEVEL=debug|info|warn|error`.
+
+### Типовые предупреждения по командам
+
+- `status`/`link`: provider не telemt => partial/unsupported summary, без эмуляции telemt API parity.
+- `restart`: даже при exit code 0 команда может завершиться с warning, если post-check (`compose ps --all`) показывает `Exited`, mixed state или `unknown`.
+- `update`: отклоняет selector-подобные флаги (`--provider`, provider image overrides), потому что обновляет текущий установленный runtime.
+- `uninstall`: без `--yes` не запускает destructive шаги; для non-telemt/mismatch завершится до cleanup.
+
+### Чувствительность вывода
+
+- `mtproxy link` — единственный намеренный путь печати полного `tg://proxy` в `stdout`; не вставляйте этот вывод в публичные тикеты/чаты.
+- `mtproxy logs` стримит raw container output и тоже должен считаться чувствительным.
+- `status`, `install`, `update`, `restart`, `uninstall` и structured logs применяют redaction.
+- Для `logs` structured logging не дублирует raw `stderr_summary`, чтобы не копировать потенциально чувствительные строки в агрегированные логи.

@@ -151,17 +151,26 @@ Official MTProxy нужен как reference provider.
 - [Upstream Repositories](upstream-repositories.md) - откуда берутся provider decisions
 - [Installation Strategy](installation-strategy.md) - как текущий default path должен эволюционировать дальше
 
-## CLI provider caveat for status and link
+## Go CLI и provider boundaries
 
-`mtproxy status` and `mtproxy link` are telemt-first commands.
+Новый `app/`-слой (`mtproxy`) не меняет provider strategy проекта: он следует текущей telemt-first модели.
 
-- For `telemt`, the CLI reconciles compose and `/v1/*` API signals and reports a full runtime summary.
-- For `mtg`, `official`, or ambiguous provider states, the CLI returns a partial summary with WARN diagnostics.
-- Unsupported provider paths do not emulate `/v1/health` or `/v1/users` parity.
+Текущее состояние:
+- `status` и `link` — telemt-aware read команды.
+- для `mtg`, `official` и ambiguous состояний `status`/`link` возвращают partial/unsupported summary с `WARN`.
+- parity `/v1/health` и `/v1/users` для non-telemt runtime не обещается.
+- calls остаются вне поддерживаемого контракта (non-goal), независимо от provider path и используемого CLI слоя.
 
-`mtproxy uninstall` and `uninstall.sh` follow a stricter v1 contract:
+Lifecycle команды в рамках этой же границы:
+- `install` принимает provider-флаги как implementation detail, но это не first-class selector UX.
+- `update` не переключает provider и не принимает provider/image selector-флаги; он обновляет установленный runtime path.
+- `uninstall` и `uninstall.sh` в v1 работают только как `telemt_only` и отклоняют `mtg`/`official`/ambiguous/mismatch до cleanup.
 
-- Strategy is explicitly `telemt_only`.
-- The command logs detected provider and `KEEP_DATA`, then requires confirmation (`--yes` in CLI) before destructive steps.
-- `mtg`, `official`, ambiguous detection, and env-vs-runtime mismatch are rejected before `docker compose down`, image cleanup, or `rm -rf`.
-- Provider-neutral uninstall is deferred to a future task and must be documented as a deliberate contract expansion.
+Операторские WARN/ERROR, которые здесь ожидаемы:
+- `WARN`: unsupported-provider fallback в `status`/`link`, degraded post-check после `restart`, подтверждение для destructive команд.
+- `ERROR`: provider mismatch/unsupported preflight, parse failures lifecycle output, и другие hard-fail состояния.
+
+Чувствительность вывода:
+- полный proxy link целенаправленно выводится только через `mtproxy link` (`stdout`);
+- `mtproxy logs` стримит raw контейнерный вывод и должен считаться чувствительным;
+- structured summaries (`status`, `install`, `update`, `restart`, `uninstall`) и structured logs используют redaction.

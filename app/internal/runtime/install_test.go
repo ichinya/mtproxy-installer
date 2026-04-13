@@ -1,7 +1,9 @@
 package runtime
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,6 +106,54 @@ func TestLoadRejectsSymlinkedProviderConfigDuringPathHardening(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "telemt provider config file must not be a symlink") {
 		t.Fatalf("expected symlink hardening error for provider config, got: %v", err)
+	}
+}
+
+func TestLoadEmitsRedactedEnvSnapshotInRuntimeLogs(t *testing.T) {
+	installDir := t.TempDir()
+	mustWriteRuntimeFixtureFiles(
+		t,
+		installDir,
+		strings.Join([]string{
+			"PROVIDER=telemt",
+			"SECRET=supersecret",
+			"STARTUP_LINK=tg://proxy?server=127.0.0.1&port=443&secret=abcdef",
+			"",
+		}, "\n"),
+	)
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	runtimeState, err := Load(LoadOptions{
+		InstallDir: installDir,
+		Logger:     logger,
+	})
+	if err != nil {
+		t.Fatalf("expected runtime load success, got %v", err)
+	}
+	if runtimeState.Provider.Name != ProviderTelemt {
+		t.Fatalf("expected provider telemt, got %q", runtimeState.Provider.Name)
+	}
+
+	logText := logs.String()
+	if !strings.Contains(logText, "runtime env loaded") {
+		t.Fatalf("expected runtime env loaded log, got: %s", logText)
+	}
+	if !strings.Contains(logText, "runtime discovery resolved") {
+		t.Fatalf("expected runtime discovery log, got: %s", logText)
+	}
+	if strings.Contains(logText, "supersecret") {
+		t.Fatalf("expected secret values to stay redacted in logs, got: %s", logText)
+	}
+	if strings.Contains(logText, "tg://proxy?server=127.0.0.1&port=443&secret=abcdef") {
+		t.Fatalf("expected proxy links to stay redacted in logs, got: %s", logText)
+	}
+	if !strings.Contains(logText, "[redacted]") {
+		t.Fatalf("expected secret redaction marker in logs, got: %s", logText)
+	}
+	if !strings.Contains(logText, "[redacted-proxy-link]") {
+		t.Fatalf("expected proxy-link redaction marker in logs, got: %s", logText)
 	}
 }
 

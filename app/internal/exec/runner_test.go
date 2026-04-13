@@ -1,7 +1,11 @@
 package exec
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
+	"os"
 	"strings"
 	"testing"
 )
@@ -391,6 +395,293 @@ func TestBuildCommandEnvAllowsPrefixOptInOverrides(t *testing.T) {
 	}
 	if len(blocked) != 0 {
 		t.Fatalf("expected no blocked env keys, got %v", blocked)
+	}
+}
+
+func TestRunnerRunCapturesOutputAndLogsLifecycle(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	runner := NewRunner(logger)
+
+	result, err := runner.Run(context.Background(), helperProcessRequest(
+		"success",
+		"helper stdout",
+		"helper stderr Authorization: Bearer abc123",
+	))
+	if err != nil {
+		t.Fatalf("expected helper process success, got %v", err)
+	}
+
+	if result.ExitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d", result.ExitCode)
+	}
+	if !strings.Contains(result.Stdout, "helper stdout") {
+		t.Fatalf("expected captured stdout, got %q", result.Stdout)
+	}
+	if !strings.Contains(result.Stderr, "helper stderr") {
+		t.Fatalf("expected captured stderr, got %q", result.Stderr)
+	}
+	if strings.Contains(result.StderrSummary, "abc123") {
+		t.Fatalf("expected redacted stderr summary, got %q", result.StderrSummary)
+	}
+	if !strings.Contains(strings.ToLower(result.StderrSummary), "[redacted]") {
+		t.Fatalf("expected redaction marker in stderr summary, got %q", result.StderrSummary)
+	}
+
+	logText := logs.String()
+	if !strings.Contains(logText, "external command start") {
+		t.Fatalf("expected command-start log, got: %s", logText)
+	}
+	if !strings.Contains(logText, "external command finish") {
+		t.Fatalf("expected command-finish log, got: %s", logText)
+	}
+	if !strings.Contains(logText, "elapsed=") {
+		t.Fatalf("expected elapsed field in logs, got: %s", logText)
+	}
+	if !strings.Contains(logText, "exit_status=0") {
+		t.Fatalf("expected exit_status field in logs, got: %s", logText)
+	}
+	if strings.Contains(logText, "abc123") {
+		t.Fatalf("expected sensitive stderr to stay redacted in logs, got: %s", logText)
+	}
+}
+
+func TestRunnerRunFailureReturnsExitCodeAndRedactedError(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	runner := NewRunner(logger)
+
+	proxyLink := "tg://proxy?server=127.0.0.1&port=443&secret=abcdef"
+	result, err := runner.Run(context.Background(), helperProcessRequest(
+		"fail",
+		"",
+		"stderr API_KEY=super-secret "+proxyLink,
+	))
+	if err == nil {
+		t.Fatalf("expected helper process failure")
+	}
+	if result.ExitCode != 17 {
+		t.Fatalf("expected exit code 17, got %d", result.ExitCode)
+	}
+
+	var commandErr *CommandError
+	if !errors.As(err, &commandErr) {
+		t.Fatalf("expected CommandError, got %T", err)
+	}
+	errorText := commandErr.Error()
+	if !strings.Contains(errorText, "external command failed") {
+		t.Fatalf("expected actionable command failure error, got %q", errorText)
+	}
+	if strings.Contains(errorText, "super-secret") || strings.Contains(errorText, proxyLink) {
+		t.Fatalf("expected command error to redact sensitive values, got %q", errorText)
+	}
+	if !strings.Contains(errorText, "[redacted]") || !strings.Contains(errorText, "[redacted-proxy-link]") {
+		t.Fatalf("expected command error to include redaction markers, got %q", errorText)
+	}
+
+	logText := logs.String()
+	if !strings.Contains(logText, "external command finish") {
+		t.Fatalf("expected command-finish log, got: %s", logText)
+	}
+	if !strings.Contains(logText, "level=ERROR") {
+		t.Fatalf("expected ERROR level for failed command, got: %s", logText)
+	}
+	if !strings.Contains(logText, "exit_status=17") {
+		t.Fatalf("expected exit_status=17 in logs, got: %s", logText)
+	}
+	if strings.Contains(logText, "super-secret") || strings.Contains(logText, proxyLink) {
+		t.Fatalf("expected logs to redact sensitive values, got: %s", logText)
+	}
+}
+
+func TestRunnerRunSupportsCaptureToggles(t *testing.T) {
+	runner := NewRunner(nil)
+
+	var streamStdout bytes.Buffer
+	var streamStderr bytes.Buffer
+	result, err := runner.Run(context.Background(), Request{
+		Command:              os.Args[0],
+		Args:                 []string{"-test.run=TestRunnerHelperProcess"},
+		WorkingDir:           ".",
+		EnvOverrides:         helperEnv("success", "stdout-stream", "stderr-stream"),
+		AllowedEnvKeys:       helperAllowedEnvKeys(),
+		DisableStdoutCapture: true,
+		DisableStderrCapture: true,
+		Stdout:               &streamStdout,
+		Stderr:               &streamStderr,
+	})
+	if err != nil {
+		t.Fatalf("expected helper process success, got %v", err)
+	}
+
+	if result.Stdout != "" {
+		t.Fatalf("expected stdout capture to be disabled, got %q", result.Stdout)
+	}
+	if result.Stderr != "" {
+		t.Fatalf("expected stderr capture to be disabled, got %q", result.Stderr)
+	}
+	if result.StderrSummary != "" {
+		t.Fatalf("expected stderr summary to be empty when stderr capture is disabled, got %q", result.StderrSummary)
+	}
+	if !strings.Contains(streamStdout.String(), "stdout-stream") {
+		t.Fatalf("expected streamed stdout output, got %q", streamStdout.String())
+	}
+	if !strings.Contains(streamStderr.String(), "stderr-stream") {
+		t.Fatalf("expected streamed stderr output, got %q", streamStderr.String())
+	}
+}
+
+func TestSummarizeStderrTruncatesAndRedacts(t *testing.T) {
+	t.Parallel()
+
+	raw := strings.Join([]string{
+		"line one API_KEY=super-secret",
+		"line two Authorization: Bearer abc123",
+		"line three tg://proxy?server=127.0.0.1&port=443&secret=abcdef",
+		"line four should not appear",
+	}, "\n")
+	summary := SummarizeStderr(raw, 90)
+
+	if strings.Contains(summary, "super-secret") || strings.Contains(summary, "abc123") {
+		t.Fatalf("expected summary to redact sensitive tokens, got %q", summary)
+	}
+	if strings.Contains(summary, "tg://proxy?") {
+		t.Fatalf("expected summary to redact proxy links, got %q", summary)
+	}
+	if strings.Contains(summary, "line four should not appear") {
+		t.Fatalf("expected summary to use first three lines only, got %q", summary)
+	}
+	if len([]rune(summary)) > 90 {
+		t.Fatalf("expected summary to honor truncation limit, got %d runes", len([]rune(summary)))
+	}
+	if !strings.Contains(summary, "...") {
+		t.Fatalf("expected long summary to be truncated with ellipsis, got %q", summary)
+	}
+}
+
+func TestRedactArgsAndRedactTextHideSensitiveValues(t *testing.T) {
+	t.Parallel()
+
+	redactedArgs := RedactArgs([]string{
+		"--secret=secret-value",
+		"--token",
+		"token-value",
+		"tg://proxy?server=127.0.0.1&port=443&secret=abcdef",
+		"plain-value",
+	})
+	if got := redactedArgs[0]; got != "--secret=[redacted]" {
+		t.Fatalf("expected inline secret redaction, got %q", got)
+	}
+	if got := redactedArgs[1]; got != "--token" {
+		t.Fatalf("expected sensitive flag marker to stay visible, got %q", got)
+	}
+	if got := redactedArgs[2]; got != "[redacted]" {
+		t.Fatalf("expected token argument value to be redacted, got %q", got)
+	}
+	if got := redactedArgs[3]; got != "[redacted-proxy-link]" {
+		t.Fatalf("expected proxy link argument to be redacted, got %q", got)
+	}
+	if got := redactedArgs[4]; got != "plain-value" {
+		t.Fatalf("expected plain argument to stay visible, got %q", got)
+	}
+
+	redactedText := RedactText(`Authorization: Bearer abc123 Cookie: sid=xyz api_key=secret query_token=123 https_proxy=http://user:pass@proxy.internal:3128`)
+	if strings.Contains(redactedText, "abc123") || strings.Contains(redactedText, "sid=xyz") || strings.Contains(redactedText, "secret") || strings.Contains(redactedText, "123") || strings.Contains(redactedText, "user:pass@") {
+		t.Fatalf("expected redacted text to hide secrets, got %q", redactedText)
+	}
+	if !strings.Contains(strings.ToLower(redactedText), "[redacted]") {
+		t.Fatalf("expected redaction marker in text, got %q", redactedText)
+	}
+	if !strings.Contains(redactedText, "http://[redacted]@proxy.internal:3128") {
+		t.Fatalf("expected proxy URL userinfo to be redacted, got %q", redactedText)
+	}
+}
+
+func TestRedactEnvSnapshotRedactsProxyCredentials(t *testing.T) {
+	t.Parallel()
+
+	redacted := RedactEnvSnapshot(map[string]string{
+		"HTTPS_PROXY": "http://user:pass@proxy.internal:3128",
+		"HTTP_PROXY":  "http://token@proxy.internal:3128",
+		"NO_PROXY":    "localhost,127.0.0.1",
+	})
+
+	if got := redacted["HTTPS_PROXY"]; got != "http://[redacted]@proxy.internal:3128" {
+		t.Fatalf("expected HTTPS_PROXY userinfo redaction, got %q", got)
+	}
+	if got := redacted["HTTP_PROXY"]; got != "http://[redacted]@proxy.internal:3128" {
+		t.Fatalf("expected HTTP_PROXY userinfo redaction, got %q", got)
+	}
+	if got := redacted["NO_PROXY"]; got != "localhost,127.0.0.1" {
+		t.Fatalf("expected NO_PROXY to stay visible, got %q", got)
+	}
+}
+
+func TestCommandErrorIncludesRedactedStderrSummary(t *testing.T) {
+	t.Parallel()
+
+	commandErr := &CommandError{
+		Result: Result{
+			StderrSummary: "API_KEY=super-secret tg://proxy?server=127.0.0.1&port=443&secret=abcdef",
+		},
+		Err: errors.New("exit status 1 token=abc123"),
+	}
+	errorText := commandErr.Error()
+	if !strings.Contains(errorText, "external command failed") {
+		t.Fatalf("expected external command failure prefix, got %q", errorText)
+	}
+	if strings.Contains(errorText, "super-secret") || strings.Contains(errorText, "abc123") || strings.Contains(errorText, "tg://proxy?") {
+		t.Fatalf("expected command error to redact sensitive values, got %q", errorText)
+	}
+	if !strings.Contains(errorText, "[redacted]") || !strings.Contains(errorText, "[redacted-proxy-link]") {
+		t.Fatalf("expected redaction markers in command error text, got %q", errorText)
+	}
+}
+
+func TestRunnerHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+		return
+	}
+
+	if _, err := os.Stdout.WriteString(os.Getenv("RUNNER_HELPER_STDOUT")); err != nil {
+		os.Exit(11)
+	}
+	if _, err := os.Stderr.WriteString(os.Getenv("RUNNER_HELPER_STDERR")); err != nil {
+		os.Exit(12)
+	}
+
+	if os.Getenv("RUNNER_HELPER_MODE") == "fail" {
+		os.Exit(17)
+	}
+	os.Exit(0)
+}
+
+func helperProcessRequest(mode string, stdout string, stderr string) Request {
+	return Request{
+		Command:        os.Args[0],
+		Args:           []string{"-test.run=TestRunnerHelperProcess"},
+		WorkingDir:     ".",
+		EnvOverrides:   helperEnv(mode, stdout, stderr),
+		AllowedEnvKeys: helperAllowedEnvKeys(),
+		LogSuccess:     true,
+	}
+}
+
+func helperEnv(mode string, stdout string, stderr string) map[string]string {
+	return map[string]string{
+		"GO_WANT_HELPER_PROCESS": "1",
+		"RUNNER_HELPER_MODE":     strings.TrimSpace(mode),
+		"RUNNER_HELPER_STDOUT":   stdout,
+		"RUNNER_HELPER_STDERR":   stderr,
+	}
+}
+
+func helperAllowedEnvKeys() []string {
+	return []string{
+		"GO_WANT_HELPER_PROCESS",
+		"RUNNER_HELPER_MODE",
+		"RUNNER_HELPER_STDOUT",
+		"RUNNER_HELPER_STDERR",
 	}
 }
 

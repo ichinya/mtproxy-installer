@@ -175,24 +175,44 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/unin
 - [Reverse Proxy](reverse-proxy.md) - схемы с L4-routing и fallback backend
 - [Troubleshooting](troubleshooting.md) - частые проблемы после первого запуска
 
-## Go CLI runtime commands
+## Go CLI (`app/`) для операторских команд
 
-For operator checks and controlled service operations:
+`app/` дополняет Bash-first runtime, но не заменяет его.
+Источник истины по lifecycle остаётся прежним: `install.sh`, `update.sh`, `uninstall.sh`.
+
+Собрать и проверить CLI:
 
 ```bash
 cd app
+go test ./...
+go build ./cmd/mtproxy
+go run ./cmd/mtproxy help
+```
+
+Базовые команды:
+
+```bash
+go run ./cmd/mtproxy version
 go run ./cmd/mtproxy status
 go run ./cmd/mtproxy link
-go run ./cmd/mtproxy logs --tail 50
+go run ./cmd/mtproxy logs --tail 100 --follow
 go run ./cmd/mtproxy restart
+go run ./cmd/mtproxy install --provider telemt
+go run ./cmd/mtproxy update
 go run ./cmd/mtproxy uninstall --yes --install-dir /opt/mtproxy-installer
 ```
 
-Notes:
-- `status` reports install dir, provider, compose state, API health, and link availability.
-- `link` can print a full `tg://proxy` URL only in its own stdout path.
-- `logs` uses detected provider service by default (`telemt`/`mtg`), supports `--follow` for live tail, and keeps raw stream out of structured command logs.
-- `restart` always performs post-check via `docker compose ps --all <service>`; successful compose restart can still end with degraded `WARN` when compose post-state is `Exited`, mixed, not-running, or unknown.
-- `uninstall` requires `--yes`; `--keep-data` preserves runtime data while still removing telemt runtime artifacts.
-- `uninstall` is explicit `telemt-only` in v1 and fails early for provider mismatch or unsupported provider states.
-- when provider is not `telemt`, commands report partial runtime details and unsupported-provider warnings.
+Ограничения и поддержка:
+- telemt-first остаётся основным операторским path.
+- provider selector как first-class UX в CLI отложен.
+- `status`/`link` полноценно работают для telemt runtime; для non-telemt возвращают partial/unsupported summary с `WARN`.
+- `update` использует provider/image уже установленного runtime и не служит selector-переключателем.
+- `uninstall` в v1 — только `telemt_only`, с обязательным `--yes`.
+- calls не являются целью поддержки (non-goal), даже при успешных install/status/link checks.
+
+Логирование и чувствительный вывод:
+- CLI пишет lifecycle-логи в `stderr`; по умолчанию dev build verbose (`DEBUG`), production — `INFO`.
+- override уровня: `MTPROXY_LOG_LEVEL=debug|info|warn|error`.
+- `mtproxy link` — единственный целевой путь полного `tg://proxy` в `stdout`; считайте вывод чувствительным.
+- `mtproxy logs` стримит raw контейнерный поток; этот путь тоже потенциально чувствительный.
+- `status`, `install`, `update`, `restart`, `uninstall` и structured-логи остаются redaction-safe.

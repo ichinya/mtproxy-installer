@@ -1,43 +1,81 @@
-# Go CLI bootstrap (`app/`)
+# Go CLI app-layer (`app/`)
 
-This directory contains the initial Go application skeleton for the future `mtproxy` CLI.
+`app/` содержит Go CLI `mtproxy` как дополнительный операторский слой над существующим Bash-first runtime.
 
-Current scope:
-- bootstrap-only command entrypoint (`cmd/mtproxy`)
-- shared root command routing in `internal/cli`
-- build metadata in `internal/version`
-- startup logging with redaction-safe defaults
-- read-only runtime inspection commands (`status`, `link`) for telemt-first installations
+Ключевая граница:
+- `install.sh`, `update.sh`, `uninstall.sh` остаются базовым runtime contract.
+- Go CLI не переопределяет эту модель, а добавляет единый интерфейс операторских команд.
 
-Important boundary:
-- The active runtime path is still Bash-first (`install.sh`, `update.sh`, `uninstall.sh`).
-- The Go CLI does not replace current operational flows yet.
+## Scope и ограничения
 
-## Local development
+- CLI сейчас telemt-first: полный happy path ориентирован на runtime `telemt`.
+- Provider selector как first-class UX в CLI отложен.
+- `status` и `link` для non-telemt runtime работают в partial/unsupported режиме с явными `WARN`.
+- `uninstall` в v1 поддерживает только `telemt` (`telemt_only`) и требует `--yes`.
+- Calls остаются non-goal для проекта и для CLI.
 
-From repository root:
+## Локальная разработка
 
 ```bash
 cd app
 go test ./...
 go build ./cmd/mtproxy
+go run ./cmd/mtproxy help
 ```
 
-Run the binary:
+Запуск бинарника:
 
 ```bash
 ./mtproxy help
 ./mtproxy version
 ./mtproxy status
 ./mtproxy link
-./mtproxy logs --tail 50
+./mtproxy logs --tail 50 --follow
 ./mtproxy restart
+./mtproxy install --provider telemt
+./mtproxy update
 ./mtproxy uninstall --yes --install-dir /opt/mtproxy-installer
 ```
 
-## Build metadata injection
+## Поддерживаемые команды
 
-You can inject version fields with `-ldflags`:
+| Команда | Назначение | Нюанс поддержки |
+| --- | --- | --- |
+| `help` | показать список команд | operator-safe |
+| `version` | вывести build metadata | operator-safe |
+| `status` | сводка runtime по `.env`, compose и telemt API | telemt-first; non-telemt => partial/unsupported summary |
+| `link` | вывести proxy link | полный `tg://proxy` печатается только здесь и только в `stdout` |
+| `logs` | стрим compose-логов сервиса провайдера | raw поток (может быть чувствительным) |
+| `restart` | controlled restart + post-check | при деградации постпроверки возвращает операторский `WARN` |
+| `install` | lifecycle wrapper для `install.sh` | telemt-first; structured output скрывает secret/link |
+| `update` | lifecycle wrapper для `update.sh` | работает по уже установленному runtime; selector parity отложен |
+| `uninstall` | lifecycle wrapper для `uninstall.sh` | v1 `telemt_only`, обязателен `--yes`, ранний отказ для mismatch/unsupported |
+
+## Логирование
+
+CLI пишет structured lifecycle-логи в `stderr`:
+- startup/build info: `cli startup`, `resolved build info`, `selected subcommand`;
+- command lifecycle: `... command entry`, `... lifecycle begin/finish`, `final runtime summary`;
+- конфигурационные сбои: `fatal configuration error`.
+
+Уровни:
+- dev build: `DEBUG` по умолчанию;
+- production build: `INFO` по умолчанию;
+- override: `MTPROXY_LOG_LEVEL=debug|info|warn|error`.
+
+Операторская интерпретация:
+- `INFO` — штатное выполнение и успешный этап.
+- `WARN` — ожидаемая деградация/caveat (unsupported provider fallback, link unavailable, restart degraded, uninstall без подтверждения).
+- `ERROR` — команда не смогла завершиться корректно.
+
+## Граница чувствительного вывода
+
+- `mtproxy link` — явный путь полного proxy link в `stdout`; вывод чувствителен.
+- `mtproxy logs` — raw контейнерный поток; вывод может содержать чувствительные данные.
+- `status`/`install`/`update`/`restart`/`uninstall` и structured-логи соблюдают redaction-политику.
+- Для `logs` structured logging не дублирует raw `stderr_summary` контейнера.
+
+## Build metadata injection
 
 ```bash
 go build -ldflags "\
@@ -48,42 +86,8 @@ go build -ldflags "\
   ./cmd/mtproxy
 ```
 
-Defaults without injection:
+Значения по умолчанию:
 - `Version=dev`
 - `Commit=unknown`
 - `BuildDate=unknown`
-- `BuildMode=development` (or inferred from version)
-
-## Logging behavior
-
-Logging is initialized at command boundary in `internal/cli.Execute`:
-- startup log (`cli startup`) with binary name, argument count, startup mode
-- resolved build metadata (`resolved build info`)
-- selected subcommand (`selected subcommand`)
-- dispatch lifecycle (`command dispatch start`/`finish`)
-- fatal configuration errors (for example invalid `MTPROXY_LOG_LEVEL`)
-
-Log level defaults:
-- development build -> `DEBUG`
-- production build -> `INFO`
-- override via `MTPROXY_LOG_LEVEL` (`debug`, `info`, `warn`, `error`)
-
-Redaction rule:
-- logs and structured summaries must not emit full proxy links or secret-like key/value data
-- full proxy links are allowed only in explicit `link` command stdout output
-
-## Runtime command behavior
-
-- `mtproxy status` is read-only and prints runtime/provider summary derived from `.env`, `docker compose ps`, `/v1/health`, `/v1/users`
-- `mtproxy link` is read-only and prints a full `tg://proxy` link only when telemt runtime resolution succeeds
-- `mtproxy logs` streams provider service logs and supports `--tail`, `--follow`, `--timestamps`, `--no-color`
-- `mtproxy restart` executes controlled restart with pre/post compose state snapshots and provider-aware post-check summary from `docker compose ps --all <service>`
-- `restart` may complete with `WARN` degradation even when `docker compose restart` exits 0, if post-check detects `Exited`, mixed, unknown, or not-running state
-- `mtproxy uninstall` is explicit `telemt-only` in v1: it requires `--yes`, logs destructive intent/preflight, and refuses `mtg`, `official`, provider ambiguity, or env-vs-runtime mismatch before cleanup
-- `mtproxy uninstall --keep-data --yes` keeps `${INSTALL_DIR}` data while still stopping compose stack and cleaning telemt image refs
-- non-telemt providers (`mtg`, `official`, ambiguous states) return partial summary with explicit unsupported-provider warning
-- `status` keeps link fields redacted even when the runtime is healthy
-
-Security/observability boundary:
-- raw container logs are streamed only to command stdout/stderr
-- structured logs keep redaction policy and do not mirror raw container stderr summaries for `logs` command
+- `BuildMode=development` (или inferred from version)

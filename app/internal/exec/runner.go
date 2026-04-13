@@ -22,6 +22,7 @@ const (
 
 var (
 	proxyLinkPattern           = regexp.MustCompile(`(?i)tg://proxy\?[^\s]+|https://t\.me/proxy\?\S+`)
+	urlUserinfoPattern         = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)([^/\s@]+)@`)
 	bearerTokenPattern         = regexp.MustCompile(`(?i)\b(bearer)\s+([A-Za-z0-9\-._~+/]+=*)`)
 	authorizationHeaderPattern = regexp.MustCompile(`(?i)\b(authorization)\s*:\s*[^|]+`)
 	cookieHeaderPattern        = regexp.MustCompile(`(?i)\b(cookie)\s*:\s*[^|]+`)
@@ -876,6 +877,7 @@ func redactSensitiveText(value string) string {
 	}
 
 	redacted = proxyLinkPattern.ReplaceAllString(redacted, "[redacted-proxy-link]")
+	redacted = urlUserinfoPattern.ReplaceAllString(redacted, "$1[redacted]@")
 	redacted = bearerTokenPattern.ReplaceAllString(redacted, "$1 [redacted]")
 	redacted = authorizationHeaderPattern.ReplaceAllString(redacted, "$1: [redacted]")
 	redacted = cookieHeaderPattern.ReplaceAllString(redacted, "$1: [redacted]")
