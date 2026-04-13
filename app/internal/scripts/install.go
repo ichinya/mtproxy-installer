@@ -1593,6 +1593,10 @@ func enforceTrustBoundaryEnvOverridePolicy(
 	return nil
 }
 
+func normalizeEnvKey(key string) string {
+	return strings.ToUpper(strings.TrimSpace(key))
+}
+
 func isTrustBoundaryEnvOverrideKey(normalizedKey string) bool {
 	if normalizedKey == "" {
 		return false

@@ -194,7 +194,7 @@ func (u UsersEnvelope) SelectStartupLink() LinkSelection {
 		}
 	}
 
-	reason := "users_without_tls_links"
+	reason = "users_without_tls_links"
 	if candidateCount > 0 {
 		reason = "tls_links_present_but_unusable"
 	}
