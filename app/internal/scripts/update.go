@@ -9,7 +9,7 @@ import (
 )
 
 type UpdateOptions struct {
-	// Runtime/image settings are sourced from the existing runtime .env contract in update.sh.
+	// Runtime/image settings are sourced from the existing runtime .env contract.
 	InstallDir                string
 	AllowNonDefaultInstallDir bool
 	ExtraEnv                  map[string]string
@@ -50,13 +50,11 @@ func (m *Manager) Update(ctx context.Context, options UpdateOptions) (execadapte
 		return execadapter.Result{}, preflightErr
 	}
 
-	scriptPath, err := m.resolveScriptPath(updateScriptName)
-	if err != nil {
-		return execadapter.Result{}, err
-	}
+	executionPath := "native-go"
 
 	envOverrides := copyEnv(options.ExtraEnv)
 	envOverrides["INSTALL_DIR"] = runtimeState.Paths.InstallDir
+	var err error
 	envOverrides, err = sanitizeEnvOverrides(
 		"update",
 		envOverrides,
@@ -73,7 +71,7 @@ func (m *Manager) Update(ctx context.Context, options UpdateOptions) (execadapte
 
 	m.logger.Debug(
 		"update adapter request assembled",
-		"script_path", scriptPath,
+		"script_path", executionPath,
 		"provider", providerValue,
 		"install_dir", runtimeState.Paths.InstallDir,
 		"options_contract", "install_dir_only",
@@ -86,7 +84,7 @@ func (m *Manager) Update(ctx context.Context, options UpdateOptions) (execadapte
 	)
 	m.logger.Info(
 		"update adapter start",
-		"script_path", scriptPath,
+		"script_path", executionPath,
 		"provider", providerValue,
 		"install_dir", runtimeState.Paths.InstallDir,
 	)
@@ -100,20 +98,12 @@ func (m *Manager) Update(ctx context.Context, options UpdateOptions) (execadapte
 	}
 	envOverrides["INSTALL_DIR"] = runtimeState.Paths.InstallDir
 
-	result, runErr := m.runner.Run(ctx, execadapter.Request{
-		Command:          m.bashPath,
-		Args:             []string{scriptPath},
-		WorkingDir:       m.repoRoot,
-		EnvOverrides:     envOverrides,
-		InheritParentEnv: false,
-		AllowedEnvKeys:   sortedKeys(envOverrides),
-		UseSafePath:      true,
-	})
+	result, runErr := m.updateGoNative(ctx, runtimeState, envOverrides)
 
 	summary := ParseUpdateLifecycle(result, runErr)
 	m.logger.Debug(
 		"update adapter parsed lifecycle summary",
-		"script_path", scriptPath,
+		"script_path", executionPath,
 		"status", summary.Status,
 		"provider", normalizeLogValue(summary.Provider, providerValue),
 		"install_dir", normalizeLogValue(summary.InstallDir, runtimeState.Paths.InstallDir),
@@ -138,7 +128,7 @@ func (m *Manager) Update(ctx context.Context, options UpdateOptions) (execadapte
 		}
 		m.logger.Error(
 			"update adapter failed",
-			"script_path", scriptPath,
+			"script_path", executionPath,
 			"status", summary.Status,
 			"provider", normalizeLogValue(summary.Provider, providerValue),
 			"install_dir", normalizeLogValue(summary.InstallDir, runtimeState.Paths.InstallDir),
@@ -155,7 +145,7 @@ func (m *Manager) Update(ctx context.Context, options UpdateOptions) (execadapte
 
 	m.logger.Info(
 		"update adapter finish",
-		"script_path", scriptPath,
+		"script_path", executionPath,
 		"status", summary.Status,
 		"provider", normalizeLogValue(summary.Provider, providerValue),
 		"install_dir", normalizeLogValue(summary.InstallDir, runtimeState.Paths.InstallDir),

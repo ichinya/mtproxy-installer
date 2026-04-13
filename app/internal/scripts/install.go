@@ -174,6 +174,7 @@ type ManagerOptions struct {
 	RepoRoot        string
 	RepoRootFromEnv bool
 	BashPath        string
+	DockerPath      string
 }
 
 type Manager struct {
@@ -181,6 +182,7 @@ type Manager struct {
 	logger                   *slog.Logger
 	repoRoot                 string
 	bashPath                 string
+	dockerPath               string
 	privilegedExecutionScope string
 }
 
@@ -229,10 +231,6 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	bashPath, err := resolveTrustedBinaryPath("bash", options.BashPath, trustedBashBinaryCandidates)
-	if err != nil {
-		return nil, err
-	}
 
 	runner := options.Runner
 	if runner == nil {
@@ -242,10 +240,11 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 	privilegedScope := detectPrivilegedExecutionContext()
 
 	logger.Debug(
-		"script adapter manager initialized",
+		"lifecycle manager initialized",
 		"repo_root", repoRoot,
 		"repo_root_from_env", options.RepoRootFromEnv,
-		"bash_path", bashPath,
+		"bash_path", normalizeLogValue(options.BashPath, "unused"),
+		"docker_path", normalizeLogValue(options.DockerPath, "auto"),
 		"privileged_execution_scope", normalizeLogValue(privilegedScope, "none"),
 	)
 
@@ -253,7 +252,8 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 		runner:                   runner,
 		logger:                   logger,
 		repoRoot:                 repoRoot,
-		bashPath:                 bashPath,
+		bashPath:                 strings.TrimSpace(options.BashPath),
+		dockerPath:               strings.TrimSpace(options.DockerPath),
 		privilegedExecutionScope: privilegedScope,
 	}, nil
 }
@@ -276,15 +276,8 @@ func (m *Manager) Install(ctx context.Context, options InstallOptions) (execadap
 		return execadapter.Result{}, err
 	}
 
-	scriptPath, err := m.resolveScriptPath(installScriptName)
-	if err != nil {
-		return execadapter.Result{}, err
-	}
-
-	positionalArgs := []string{
-		provider,
-		strconv.Itoa(options.Port),
-	}
+	executionPath := "native-go"
+	positionalArgs := []string{provider, strconv.Itoa(options.Port)}
 
 	envOverrides := copyEnv(options.ExtraEnv)
 	envOverrides["PROVIDER"] = provider
@@ -327,7 +320,7 @@ func (m *Manager) Install(ctx context.Context, options InstallOptions) (execadap
 
 	m.logger.Debug(
 		"install adapter request assembled",
-		"script_path", scriptPath,
+		"script_path", executionPath,
 		"provider", provider,
 		"positional_args", execadapter.RedactArgs(positionalArgs),
 		"install_dir", installDir,
@@ -338,25 +331,16 @@ func (m *Manager) Install(ctx context.Context, options InstallOptions) (execadap
 	)
 	m.logger.Info(
 		"install adapter start",
-		"script_path", scriptPath,
+		"script_path", executionPath,
 		"provider", provider,
 		"install_dir", installDir,
 	)
 
-	requestArgs := append([]string{scriptPath}, positionalArgs...)
-	result, runErr := m.runner.Run(ctx, execadapter.Request{
-		Command:          m.bashPath,
-		Args:             requestArgs,
-		WorkingDir:       m.repoRoot,
-		EnvOverrides:     envOverrides,
-		InheritParentEnv: false,
-		AllowedEnvKeys:   sortedKeys(envOverrides),
-		UseSafePath:      true,
-	})
+	result, runErr := m.installGoNative(ctx, options, provider, installDir, envOverrides)
 	lifecycleSummary := ParseInstallLifecycle(result)
 	m.logger.Debug(
 		"install adapter parsed lifecycle summary",
-		"script_path", scriptPath,
+		"script_path", executionPath,
 		"provider", normalizeLogValue(lifecycleSummary.Provider, provider),
 		"install_dir", normalizeLogValue(lifecycleSummary.InstallDir, installDir),
 		"public_endpoint", normalizeLogValue(lifecycleSummary.PublicEndpoint, "n/a"),
@@ -369,7 +353,7 @@ func (m *Manager) Install(ctx context.Context, options InstallOptions) (execadap
 	if runErr != nil {
 		m.logger.Error(
 			"install adapter failed",
-			"script_path", scriptPath,
+			"script_path", executionPath,
 			"provider", normalizeLogValue(lifecycleSummary.Provider, provider),
 			"install_dir", normalizeLogValue(lifecycleSummary.InstallDir, installDir),
 			"public_endpoint", normalizeLogValue(lifecycleSummary.PublicEndpoint, "n/a"),
@@ -385,7 +369,7 @@ func (m *Manager) Install(ctx context.Context, options InstallOptions) (execadap
 
 	m.logger.Info(
 		"install adapter finish",
-		"script_path", scriptPath,
+		"script_path", executionPath,
 		"provider", normalizeLogValue(lifecycleSummary.Provider, provider),
 		"install_dir", normalizeLogValue(lifecycleSummary.InstallDir, installDir),
 		"public_endpoint", normalizeLogValue(lifecycleSummary.PublicEndpoint, "n/a"),
@@ -729,8 +713,8 @@ func (m *Manager) validateRuntimeInstallDirState(installDir string, runtimeState
 		}
 	}
 
-	// Keep compatibility with existing runtime contracts: update.sh/uninstall.sh
-	// resolve provider image refs with shell-side fallbacks, so preflight must not
+	// Keep compatibility with existing runtime contracts: update/uninstall
+	// resolve provider image refs with lifecycle-side fallbacks, so preflight must not
 	// require TELEMT_IMAGE{_SOURCE} or MTG_IMAGE{_SOURCE} to be present.
 
 	marker, ok := runtimeComposeMarkers[runtimeState.Provider.Name]
@@ -1217,7 +1201,7 @@ func normalizeProvider(provider runtime.Provider) (string, error) {
 	case "":
 		return "", errors.New("provider is required")
 	default:
-		return "", fmt.Errorf("unsupported provider for script adapter: %q", provider)
+		return "", fmt.Errorf("unsupported provider for lifecycle manager: %q", provider)
 	}
 }
 

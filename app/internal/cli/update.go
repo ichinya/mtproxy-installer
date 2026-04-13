@@ -213,7 +213,7 @@ func rejectUnsupportedUpdateFlags(args []string) error {
 		}
 		if _, blocked := updateUnsupportedFlags[flagName]; blocked {
 			return fmt.Errorf(
-				"update command flag %s is unsupported; update.sh always uses provider/image from installed runtime",
+				"update command flag %s is unsupported; update always uses provider/image from installed runtime",
 				flagName,
 			)
 		}

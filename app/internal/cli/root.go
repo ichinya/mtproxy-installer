@@ -180,15 +180,15 @@ func runHelp(ctx commandContext) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(ctx.Stdout, "  install   Run install lifecycle via install.sh wrapper")
+	_, err = fmt.Fprintln(ctx.Stdout, "  install   Install runtime via native Go lifecycle")
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(ctx.Stdout, "  update    Run update lifecycle via update.sh wrapper")
+	_, err = fmt.Fprintln(ctx.Stdout, "  update    Update installed runtime via native Go lifecycle")
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(ctx.Stdout, "  uninstall Remove telemt runtime via uninstall.sh wrapper (requires --yes)")
+	_, err = fmt.Fprintln(ctx.Stdout, "  uninstall Remove telemt runtime via native Go lifecycle (requires --yes)")
 	return err
 }
 

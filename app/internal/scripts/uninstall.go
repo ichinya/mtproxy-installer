@@ -143,10 +143,7 @@ func (m *Manager) Uninstall(ctx context.Context, options UninstallOptions) (exec
 		return execadapter.Result{}, contractErr
 	}
 
-	scriptPath, err := m.resolveUninstallScriptPath()
-	if err != nil {
-		return execadapter.Result{}, err
-	}
+	executionPath := "native-go"
 
 	envOverrides := copyEnv(options.ExtraEnv)
 	envOverrides["INSTALL_DIR"] = runtimeState.Paths.InstallDir
@@ -155,6 +152,7 @@ func (m *Manager) Uninstall(ctx context.Context, options UninstallOptions) (exec
 	} else {
 		envOverrides["KEEP_DATA"] = "false"
 	}
+	var err error
 	envOverrides, err = sanitizeEnvOverrides(
 		"uninstall",
 		envOverrides,
@@ -171,7 +169,7 @@ func (m *Manager) Uninstall(ctx context.Context, options UninstallOptions) (exec
 	m.logger.Warn(
 		"uninstall adapter destructive execution requested",
 		"strategy", strategyMode,
-		"script_path", scriptPath,
+		"script_path", executionPath,
 		"provider_hint", normalizeLogValue(providerHint, string(resolvedProvider)),
 		"runtime_provider", runtimeState.Provider.Name,
 		"install_dir", runtimeState.Paths.InstallDir,
@@ -182,7 +180,7 @@ func (m *Manager) Uninstall(ctx context.Context, options UninstallOptions) (exec
 	m.logger.Debug(
 		"uninstall adapter request assembled",
 		"strategy", strategyMode,
-		"script_path", scriptPath,
+		"script_path", executionPath,
 		"working_dir", m.repoRoot,
 		"env_override_keys", sortedKeys(envOverrides),
 		"env_overrides", execadapter.RedactEnvSnapshot(envOverrides),
@@ -190,7 +188,7 @@ func (m *Manager) Uninstall(ctx context.Context, options UninstallOptions) (exec
 	m.logger.Info(
 		"uninstall adapter start",
 		"strategy", strategyMode,
-		"script_path", scriptPath,
+		"script_path", executionPath,
 		"provider", resolvedProvider,
 		"install_dir", runtimeState.Paths.InstallDir,
 		"keep_data", options.KeepData,
@@ -220,15 +218,7 @@ func (m *Manager) Uninstall(ctx context.Context, options UninstallOptions) (exec
 		return execadapter.Result{}, contractErr
 	}
 
-	result, runErr := m.runner.Run(ctx, execadapter.Request{
-		Command:          m.bashPath,
-		Args:             []string{scriptPath},
-		WorkingDir:       m.repoRoot,
-		EnvOverrides:     envOverrides,
-		InheritParentEnv: false,
-		AllowedEnvKeys:   sortedKeys(envOverrides),
-		UseSafePath:      true,
-	})
+	result, runErr := m.uninstallGoNative(ctx, runtimeState, resolvedProvider, options.KeepData, envOverrides)
 
 	summary := ParseUninstallLifecycle(result, runErr)
 	m.logger.Debug(

@@ -2,55 +2,61 @@
 
 # Getting Started
 
-Этот документ описывает текущий рабочий путь установки для `mtproxy-installer`. На сегодня first-class сценарий только
-один: Telemt-based deployment через `providers/telemt`.
+Текущий рекомендуемый install path для `mtproxy-installer` проходит через Go CLI `mtproxy`.
+Основной first-class сценарий остаётся `telemt`-based deployment через `providers/telemt`.
 
 ## Что понадобится
 
-Перед установкой подготовь:
-
-- Linux-сервер с root-доступом или `sudo`
-- внешний IP-адрес, который будет использоваться как `public_host` и `announce`
-- домен для FakeTLS, если не хочешь оставлять дефолт `www.google.com`
-- Docker и Docker Compose, если хочешь запускать проект из локального клона вручную
-
-Installer умеет ставить Docker и Docker Compose сам, если их еще нет в системе.
+- Linux host / VM / WSL с `sudo`
+- Docker и Docker Compose plugin
+- внешний IP, который будет использоваться как `public_host` / `announce`
+- FakeTLS domain, если не устраивает default
 
 ## Быстрая установка
 
-Самый короткий путь:
-
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | sudo bash
+cd app
+go build -o mtproxy ./cmd/mtproxy
+sudo ./mtproxy install --provider telemt
 ```
 
-По умолчанию installer:
+По умолчанию команда:
 
-- создает каталог `/opt/mtproxy-installer`
-- готовит `providers/telemt`
+- создаёт `/opt/mtproxy-installer`
+- готовит provider layout
 - генерирует secret
-- пишет рабочий `telemt.toml` в FakeTLS-режиме
-- запускает контейнер через корневой `docker-compose.yml`
-- пытается получить готовую `tg://proxy` ссылку из локального Control API
+- пишет `.env`, `docker-compose.yml` и provider config
+- подтягивает provider image
+- запускает compose runtime
+- для `telemt` пытается получить startup `tg://proxy`
 
-## Переопределение значений при установке
+## Переопределение значений
 
-Если нужен другой порт или домен, переменные можно передать сразу:
+Примеры:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/install.sh | \
-  sudo env PORT=8443 TLS_DOMAIN=habr.com PROXY_USER=public bash
+# telemt на 8443
+sudo ./mtproxy install --provider telemt --port 8443
+
+# telemt с кастомным FakeTLS domain
+sudo ./mtproxy install --provider telemt --tls-domain habr.com
+
+# telemt с явным proxy user
+sudo ./mtproxy install --provider telemt --proxy-user public
+
+# mtg
+sudo ./mtproxy install --provider mtg
 ```
 
 Чаще всего переопределяют:
 
-- `PORT`
-- `API_PORT`
-- `TLS_DOMAIN`
-- `PROXY_USER`
-- `RUST_LOG`
+- `--port`
+- `--api-port`
+- `--tls-domain`
+- `--proxy-user`
+- `--install-dir`
 
-Полный список и смысл переменных собран в [Configuration](configuration.md).
+Полный список параметров: `go run ./app/cmd/mtproxy help`.
 
 ## Что появится на диске
 
@@ -62,26 +68,76 @@ curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/inst
   docker-compose.yml
   providers/
     telemt/
-      .env
-      docker-compose.yml
       telemt.toml
       data/
 ```
 
-## Ручной запуск из локального клона
+Для `mtg` вместо `telemt.toml` будет `providers/mtg/mtg.conf`.
 
-Если работаешь не через installer, а из локального репозитория, подготовь файлы вручную:
+## Как проверить runtime
+
+Минимальная проверка:
 
 ```bash
-cp .env.example .env
-cp providers/telemt/.env.example providers/telemt/.env
-cp providers/telemt/telemt.toml.example providers/telemt/telemt.toml
-mkdir -p providers/telemt/data/cache providers/telemt/data/tlsfront
-sudo chown -R 65532:65532 providers/telemt/data
-docker compose up -d
+go run ./app/cmd/mtproxy status
+go run ./app/cmd/mtproxy link
+go run ./app/cmd/mtproxy logs --tail 100 --follow
 ```
 
-Тот же локальный путь теперь можно запускать через Makefile:
+Ручная проверка через Docker Compose:
+
+```bash
+docker compose -f /opt/mtproxy-installer/docker-compose.yml \
+  --project-directory /opt/mtproxy-installer \
+  --env-file /opt/mtproxy-installer/.env ps
+
+curl http://127.0.0.1:9091/v1/health
+curl http://127.0.0.1:9091/v1/users
+```
+
+Acceptance checklist:
+
+- контейнер запущен
+- local API отвечает
+- `mtproxy status` не падает
+- `mtproxy link` даёт валидный link или понятный degraded summary
+
+Не используйте Telegram calls как acceptance criterion.
+
+## Обновление
+
+```bash
+sudo ./app/mtproxy update
+```
+
+Если бинарник ещё не собран:
+
+```bash
+cd app
+go run ./cmd/mtproxy update
+```
+
+`update` берёт provider/image из уже установленного runtime, подтягивает новый image, перезапускает сервис и делает rollback при провале validation.
+
+## Удаление
+
+```bash
+# полное удаление
+sudo ./app/mtproxy uninstall --yes
+
+# удалить runtime, но сохранить install dir
+sudo ./app/mtproxy uninstall --yes --keep-data
+```
+
+Важно для v1:
+
+- `uninstall` работает только в стратегии `telemt_only`
+- для `mtg`, `official`, ambiguous state и env/runtime mismatch cleanup не запускается
+- команда требует `--yes`
+
+## Локальная разработка
+
+Для local/dev path из корня репозитория:
 
 ```bash
 make setup
@@ -89,130 +145,16 @@ make dev
 make test
 ```
 
-Перед запуском обязательно проверь в `providers/telemt/telemt.toml`:
-
-- `middle_proxy_nat_ip`
-- `public_host`
-- `announce`
-- `tls_domain`
-
-## Quick Commands
-
-| Command                | Description                                              |
-|------------------------|----------------------------------------------------------|
-| `make setup`           | подготовить локальные env/config файлы и data-директории |
-| `make dev`             | поднять локальный Docker Compose stack                   |
-| `make build`           | провалидировать root и provider compose-конфиги          |
-| `make test`            | выполнить shell syntax check и базовые smoke-checks      |
-| `make lint`            | прогнать `shellcheck` для `install.sh`                   |
-| `make docker-dev-down` | остановить локальный stack                               |
-
-Для полного списка используй `make help`.
-
-## Как проверить, что все поднялось
-
-Минимальная проверка после старта:
-
-```bash
-# Проверка здоровья API
-curl http://127.0.0.1:9091/v1/health
-
-# Получение proxy links
-curl http://127.0.0.1:9091/v1/users
-
-# Просмотр логов
-docker compose -f /opt/mtproxy-installer/docker-compose.yml \
-  --project-directory /opt/mtproxy-installer \
-  --env-file /opt/mtproxy-installer/.env logs -f telemt
-```
-
-Контрольный список:
-
-- контейнер запущен: `docker compose ps`
-- API отвечает только на `127.0.0.1:9091`
-- получена `tg://proxy` ссылка
-- через прокси открываются сообщения / каналы / media
-- порт доступен снаружи
-
-Что не использовать как acceptance-критерий:
-
-- голосовые звонки Telegram; для текущего MTProto/Telemt path они не считаются гарантированно поддерживаемым сценарием.
-
-Если трафик идет через reverse proxy, сразу переходи к [Reverse Proxy](reverse-proxy.md). Если есть проблемы с медиа,
-SNI или `proxy_protocol`, смотри [Troubleshooting](troubleshooting.md).
-
-## Обновление
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/update.sh | sudo bash
-```
-
-Скрипт сохраняет конфиг и секрет, подтягивает свежий образ и перезапускает контейнер.
-
-## Удаление
-
-```bash
-# Полное удаление
-curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/uninstall.sh | sudo bash
-
-# С сохранением данных
-curl -fsSL https://raw.githubusercontent.com/ichinya/mtproxy-installer/main/uninstall.sh | sudo env KEEP_DATA=true bash
-```
-
-Важно для v1: `uninstall.sh` и `mtproxy uninstall` работают в стратегии `telemt_only`.
-Если runtime определяется как `mtg`, `official`, ambiguous или env-vs-runtime mismatch, cleanup шаги не запускаются,
-а команда завершается с явными `WARN/ERROR` markers.
-
-## Следующие шаги
-
-- настрой переменные окружения и `telemt.toml` под свой сервер
-- реши, нужен ли тебе own-domain fallback вместо дефолтного `tls_domain`
-- определи, будет ли deployment работать напрямую или за `nginx` / Traefik
-
-## See Also
-
-- [Configuration](configuration.md) - все ключевые env vars и настройки Telemt
-- [Reverse Proxy](reverse-proxy.md) - схемы с L4-routing и fallback backend
-- [Troubleshooting](troubleshooting.md) - частые проблемы после первого запуска
-
-## Go CLI (`app/`) для операторских команд
-
-`app/` дополняет Bash-first runtime, но не заменяет его.
-Источник истины по lifecycle остаётся прежним: `install.sh`, `update.sh`, `uninstall.sh`.
-
-Собрать и проверить CLI:
+Для app-layer:
 
 ```bash
 cd app
 go test ./...
 go build ./cmd/mtproxy
-go run ./cmd/mtproxy help
 ```
 
-Базовые команды:
+## Next
 
-```bash
-go run ./cmd/mtproxy version
-go run ./cmd/mtproxy status
-go run ./cmd/mtproxy link
-go run ./cmd/mtproxy logs --tail 100 --follow
-go run ./cmd/mtproxy restart
-go run ./cmd/mtproxy install --provider telemt
-go run ./cmd/mtproxy update
-go run ./cmd/mtproxy uninstall --yes --install-dir /opt/mtproxy-installer
-```
-
-Ограничения и поддержка:
-- telemt-first остаётся основным операторским path.
-- provider selector как first-class UX в CLI отложен.
-- `status`/`link` полноценно работают для telemt runtime; для non-telemt возвращают partial/unsupported summary с `WARN`.
-- `update` использует provider/image уже установленного runtime и не служит selector-переключателем.
-- `uninstall` в v1 — только `telemt_only`, с обязательным `--yes`.
-- calls не являются целью поддержки (non-goal), даже при успешных install/status/link checks.
-
-Логирование и чувствительный вывод:
-- CLI пишет lifecycle-логи в `stderr`; по умолчанию dev build verbose (`DEBUG`), production — `INFO`.
-- override уровня: `MTPROXY_LOG_LEVEL=debug|info|warn|error`.
-- `mtproxy link` — единственный целевой путь полного `tg://proxy` в `stdout`, но только если runtime подтверждён и `compose` виден как `running`; при degraded/unverified compose команда вернёт summary без raw link.
-- `mtproxy logs` стримит raw контейнерный поток; этот путь тоже потенциально чувствительный.
-- `status`, `install`, `update`, `restart`, `uninstall` и structured-логи остаются redaction-safe.
+- [Configuration](configuration.md) — env vars и настройки `telemt.toml`
+- [Reverse Proxy](reverse-proxy.md) — L4 routing и fallback backend
+- [Troubleshooting](troubleshooting.md) — диагностика runtime и compose
