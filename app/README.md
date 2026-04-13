@@ -44,7 +44,7 @@ go run ./cmd/mtproxy help
 | `help` | показать список команд | operator-safe |
 | `version` | вывести build metadata | operator-safe |
 | `status` | сводка runtime по `.env`, compose и telemt API | telemt-first; non-telemt => partial/unsupported summary |
-| `link` | вывести proxy link | полный `tg://proxy` печатается только здесь и только в `stdout` |
+| `link` | вывести proxy link | полный `tg://proxy` печатается только здесь, только в `stdout` и только при `compose=running`; иначе команда возвращает degraded summary |
 | `logs` | стрим compose-логов сервиса провайдера | raw поток (может быть чувствительным) |
 | `restart` | controlled restart + post-check | при деградации постпроверки возвращает операторский `WARN` |
 | `install` | lifecycle wrapper для `install.sh` | telemt-first; structured output скрывает secret/link |
@@ -70,7 +70,7 @@ CLI пишет structured lifecycle-логи в `stderr`:
 
 ## Граница чувствительного вывода
 
-- `mtproxy link` — явный путь полного proxy link в `stdout`; вывод чувствителен.
+- `mtproxy link` — явный путь полного proxy link в `stdout`, но только для подтверждённого runtime; при degraded/unverified compose raw link намеренно не печатается.
 - `mtproxy logs` — raw контейнерный поток; вывод может содержать чувствительные данные.
 - `status`/`install`/`update`/`restart`/`uninstall` и structured-логи соблюдают redaction-политику.
 - Для `logs` structured logging не дублирует raw `stderr_summary` контейнера.

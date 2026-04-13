@@ -213,6 +213,6 @@ go run ./cmd/mtproxy uninstall --yes --install-dir /opt/mtproxy-installer
 Логирование и чувствительный вывод:
 - CLI пишет lifecycle-логи в `stderr`; по умолчанию dev build verbose (`DEBUG`), production — `INFO`.
 - override уровня: `MTPROXY_LOG_LEVEL=debug|info|warn|error`.
-- `mtproxy link` — единственный целевой путь полного `tg://proxy` в `stdout`; считайте вывод чувствительным.
+- `mtproxy link` — единственный целевой путь полного `tg://proxy` в `stdout`, но только если runtime подтверждён и `compose` виден как `running`; при degraded/unverified compose команда вернёт summary без raw link.
 - `mtproxy logs` стримит raw контейнерный поток; этот путь тоже потенциально чувствительный.
 - `status`, `install`, `update`, `restart`, `uninstall` и structured-логи остаются redaction-safe.

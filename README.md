@@ -141,7 +141,7 @@ go run ./cmd/mtproxy help
 | `help` | Печатает справку CLI | operator-safe |
 | `version` | Печатает build metadata | operator-safe |
 | `status` | Сводка runtime (`.env`, `compose`, `/v1/health`, `/v1/users`) | telemt-first; для non-telemt даёт partial summary с `WARN`; ссылки редактируются |
-| `link` | Печатает прокси-ссылку | единственная команда, где полный `tg://proxy` целенаправленно уходит в `stdout` |
+| `link` | Печатает прокси-ссылку | полный `tg://proxy` уходит в `stdout` только при подтверждённом telemt runtime (`compose=running`); иначе команда даёт actionable degraded summary |
 | `logs` | Стримит raw `docker compose logs` | может содержать чувствительные данные из контейнера; не зеркалится в structured `stderr_summary` |
 | `restart` | `compose restart` + post-check (`compose ps --all`) | при деградации post-check завершает с операторским `WARN` |
 | `install` | Обёртка над `install.sh` | telemt-first; structured output redacted, полный link не печатается |
@@ -158,6 +158,6 @@ go run ./cmd/mtproxy help
 
 ### Граница по секретам
 
-- `mtproxy link` — осознанный путь вывода полного proxy link в `stdout`; считайте вывод чувствительным.
+- `mtproxy link` — осознанный путь вывода полного proxy link в `stdout`, но только когда runtime подтверждён через `compose`; при degraded/unverified compose команда сознательно не печатает raw link.
 - `mtproxy logs` — raw поток контейнера; тоже считайте чувствительным.
 - `status`, `install`, `update`, `restart`, `uninstall` и structured-логи придерживаются redaction-политики.

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	goRuntime "runtime"
 	"strings"
 	"testing"
 
@@ -142,6 +143,10 @@ func TestResolveUninstallScriptPathUsesManagerRootOutsidePrivilegedMode(t *testi
 
 func TestResolveUninstallScriptPathUsesTrustedRootInPrivilegedMode(t *testing.T) {
 	t.Parallel()
+
+	if goRuntime.GOOS == "windows" {
+		t.Skip("strict trusted-root permission checks are POSIX-specific in this test")
+	}
 
 	untrustedRoot := t.TempDir()
 	createScriptSetForUninstallRepoRootTest(t, untrustedRoot)

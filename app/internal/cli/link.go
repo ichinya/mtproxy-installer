@@ -2,6 +2,7 @@ package cli
 
 import (
 	"mtproxy-installer/app/internal/output"
+	"mtproxy-installer/app/internal/provider/telemt"
 )
 
 func runLink(ctx commandContext) error {
@@ -44,36 +45,57 @@ func runLink(ctx commandContext) error {
 		return err
 	}
 
-	if telemtSummary.LinkAvailable() {
-		if err := writeCommandOutput(ctx.Stdout, output.RenderTelemtLink(telemtSummary)); err != nil {
+	linkSummary := sanitizeTelemtLinkOutput(telemtSummary)
+	if linkSummary.LinkAvailable() {
+		if err := writeCommandOutput(ctx.Stdout, output.RenderTelemtLink(linkSummary)); err != nil {
 			return err
 		}
 		ctx.Logger.Info(
 			"link command resolved",
-			"provider", telemtSummary.Provider,
-			"runtime_status", telemtSummary.RuntimeStatus,
-			"compose_state", telemtSummary.ComposeStatus,
-			"health_state", telemtSummary.HealthStatus,
+			"provider", linkSummary.Provider,
+			"runtime_status", linkSummary.RuntimeStatus,
+			"compose_state", linkSummary.ComposeStatus,
+			"health_state", linkSummary.HealthStatus,
 			"link_available", true,
-			"selected_link", telemtSummary.RedactedProxyLink(),
+			"selected_link", linkSummary.RedactedProxyLink(),
 		)
-		logTelemtFinalSummary(ctx.Logger, "link", telemtSummary)
+		logTelemtFinalSummary(ctx.Logger, "link", linkSummary)
 		return nil
 	}
 
-	if err := writeCommandOutput(ctx.Stdout, output.RenderTelemtLink(telemtSummary)); err != nil {
+	if err := writeCommandOutput(ctx.Stdout, output.RenderTelemtLink(linkSummary)); err != nil {
 		return err
 	}
 	ctx.Logger.Warn(
 		"link command resolved without usable link",
-		"provider", telemtSummary.Provider,
-		"runtime_status", telemtSummary.RuntimeStatus,
-		"compose_state", telemtSummary.ComposeStatus,
-		"health_state", telemtSummary.HealthStatus,
-		"link_state", telemtSummary.LinkStatus,
-		"link_reason", telemtSummary.LinkReason,
+		"provider", linkSummary.Provider,
+		"runtime_status", linkSummary.RuntimeStatus,
+		"compose_state", linkSummary.ComposeStatus,
+		"health_state", linkSummary.HealthStatus,
+		"link_state", linkSummary.LinkStatus,
+		"link_reason", linkSummary.LinkReason,
 		"link_available", false,
 	)
-	logTelemtFinalSummary(ctx.Logger, "link", telemtSummary)
+	logTelemtFinalSummary(ctx.Logger, "link", linkSummary)
 	return nil
+}
+
+func sanitizeTelemtLinkOutput(summary telemt.StatusSummary) telemt.StatusSummary {
+	if summary.ComposeStatus == telemt.ComposeStatusRunning || !summary.LinkAvailable() {
+		return summary
+	}
+
+	sanitized := summary
+	sanitized.ProxyLink = ""
+	if sanitized.LinkStatus == telemt.LinkStatusAvailable {
+		sanitized.LinkStatus = telemt.LinkStatusUnavailable
+	}
+
+	switch sanitized.ComposeStatus {
+	case telemt.ComposeStatusNotRunning:
+		sanitized.LinkReason = "compose_not_running_link_withheld"
+	default:
+		sanitized.LinkReason = "compose_unverified_link_withheld"
+	}
+	return sanitized
 }

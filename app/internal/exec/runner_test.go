@@ -270,15 +270,11 @@ func TestRunRejectsSensitiveOverrideWithoutExplicitKeyAllowlist(t *testing.T) {
 
 func TestRunAllowsSensitiveOverrideWithExplicitKeyAllowlist(t *testing.T) {
 	runner := NewRunner(nil)
-	_, err := runner.Run(context.Background(), Request{
-		Command:    "echo",
-		Args:       []string{"ok"},
-		WorkingDir: ".",
-		EnvOverrides: map[string]string{
-			"DOCKER_TLS_CERTDIR": "/certs",
-		},
-		AllowedEnvKeys: []string{"DOCKER_TLS_CERTDIR"},
-	})
+	request := helperProcessRequest("success", "ok", "")
+	request.EnvOverrides["DOCKER_TLS_CERTDIR"] = "/certs"
+	request.AllowedEnvKeys = append(request.AllowedEnvKeys, "DOCKER_TLS_CERTDIR")
+
+	_, err := runner.Run(context.Background(), request)
 	if err != nil {
 		t.Fatalf("expected explicit sensitive key allowlist to pass, got %v", err)
 	}

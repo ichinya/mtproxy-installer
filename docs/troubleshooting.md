@@ -398,13 +398,14 @@ CLI пишет structured lifecycle-логи в `stderr`.
 ### Типовые предупреждения по командам
 
 - `status`/`link`: provider не telemt => partial/unsupported summary, без эмуляции telemt API parity.
+- `link`: если `compose` не удаётся подтвердить (`unknown`, init failure, degraded adapter path), команда сознательно не печатает raw `tg://proxy` и возвращает actionable summary.
 - `restart`: даже при exit code 0 команда может завершиться с warning, если post-check (`compose ps --all`) показывает `Exited`, mixed state или `unknown`.
 - `update`: отклоняет selector-подобные флаги (`--provider`, provider image overrides), потому что обновляет текущий установленный runtime.
 - `uninstall`: без `--yes` не запускает destructive шаги; для non-telemt/mismatch завершится до cleanup.
 
 ### Чувствительность вывода
 
-- `mtproxy link` — единственный намеренный путь печати полного `tg://proxy` в `stdout`; не вставляйте этот вывод в публичные тикеты/чаты.
+- `mtproxy link` — единственный намеренный путь печати полного `tg://proxy` в `stdout`, но только при подтверждённом runtime; не вставляйте этот вывод в публичные тикеты/чаты.
 - `mtproxy logs` стримит raw container output и тоже должен считаться чувствительным.
 - `status`, `install`, `update`, `restart`, `uninstall` и structured logs применяют redaction.
 - Для `logs` structured logging не дублирует raw `stderr_summary`, чтобы не копировать потенциально чувствительные строки в агрегированные логи.

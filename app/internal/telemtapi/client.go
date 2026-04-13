@@ -125,6 +125,9 @@ func NewClient(options ClientOptions) (*Client, error) {
 		return nil, errors.New("telemt api base URL must not include userinfo")
 	}
 	if parsedURL.RawQuery != "" || parsedURL.ForceQuery {
+		if _, queryErr := url.ParseQuery(parsedURL.RawQuery); queryErr != nil {
+			return nil, errors.New("telemt api base URL is invalid")
+		}
 		return nil, errors.New("telemt api base URL must not include query parameters")
 	}
 	if parsedURL.Fragment != "" {

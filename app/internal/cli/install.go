@@ -136,7 +136,7 @@ func runInstall(ctx commandContext) error {
 			"provider", options.provider,
 			"install_dir", options.installDir,
 			"exit_status", result.ExitCode,
-			"stderr_summary", result.StderrSummary,
+			"stderr_summary", execadapter.RedactText(result.StderrSummary),
 			"error", redactForCommand(ctx.Command, runErr.Error()),
 		)
 		return runErr
