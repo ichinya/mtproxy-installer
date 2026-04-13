@@ -10,6 +10,25 @@ import (
 	"testing"
 )
 
+func TestResolveInstallDirPreservesPOSIXRootedDefaultPath(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	resolved := resolveInstallDir(LoadOptions{
+		InstallDir: DefaultInstallDir,
+		Logger:     logger,
+	}, logger)
+	if resolved != DefaultInstallDir {
+		t.Fatalf("expected POSIX-rooted default install dir to stay stable, got %q", resolved)
+	}
+
+	if !strings.Contains(logs.String(), "mode=posix-rooted") {
+		t.Fatalf("expected posix-rooted normalization log, got: %s", logs.String())
+	}
+}
+
 func TestLoadRejectsSymlinkedEnvFileDuringPathHardening(t *testing.T) {
 	installDir := t.TempDir()
 	mustWriteRuntimeFixtureFiles(t, installDir, "PROVIDER=telemt\n")

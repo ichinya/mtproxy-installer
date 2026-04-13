@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	execadapter "mtproxy-installer/app/internal/exec"
+	"mtproxy-installer/app/internal/pathutil"
 	"mtproxy-installer/app/internal/runtime"
 )
 
@@ -502,15 +503,7 @@ func (a *ComposeAdapter) recheckRuntimeAtExecution() (runtimeExecutionSnapshot, 
 }
 
 func canonicalPathKey(path string) string {
-	if strings.TrimSpace(path) == "" {
-		return ""
-	}
-	cleaned := filepath.Clean(path)
-	normalized := filepath.ToSlash(cleaned)
-	if filepath.VolumeName(cleaned) != "" {
-		return strings.ToLower(normalized)
-	}
-	return normalized
+	return pathutil.CanonicalPathKey(path)
 }
 
 func resolveTrustedBinaryPath(binaryName string, explicitPath string, candidates []string) (string, error) {
@@ -626,15 +619,7 @@ func hardenRuntimeSnapshot(snapshot runtimeExecutionSnapshot) (runtimeExecutionS
 }
 
 func resolveAbsolutePath(path string) (string, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
-		return "", errors.New("path is required")
-	}
-	absolute, err := filepath.Abs(trimmed)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Clean(absolute), nil
+	return pathutil.ResolvePath(path)
 }
 
 func validatePathChainNoSymlinks(path string) error {

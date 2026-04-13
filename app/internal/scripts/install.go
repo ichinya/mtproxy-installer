@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	execadapter "mtproxy-installer/app/internal/exec"
+	"mtproxy-installer/app/internal/pathutil"
 	"mtproxy-installer/app/internal/runtime"
 )
 
@@ -1715,16 +1716,16 @@ func normalizeInstallDirValue(value string) string {
 	if trimmed == "" {
 		trimmed = runtime.DefaultInstallDir
 	}
-	return filepath.Clean(trimmed)
+	return pathutil.CleanPath(trimmed)
 }
 
 func resolveInstallDirPath(value string) (string, error) {
 	normalized := normalizeInstallDirValue(value)
-	absolute, err := filepath.Abs(normalized)
+	absolute, err := pathutil.ResolvePath(normalized)
 	if err != nil {
 		return "", fmt.Errorf("unable to resolve INSTALL_DIR %q: %w", normalized, err)
 	}
-	return filepath.Clean(absolute), nil
+	return absolute, nil
 }
 
 func enforceInstallDirPathSafety(installDir string, allowMissingTarget bool) error {
@@ -1887,15 +1888,7 @@ func requireRuntimeDirectory(path string, label string) error {
 }
 
 func canonicalPathKey(path string) string {
-	if strings.TrimSpace(path) == "" {
-		return ""
-	}
-	cleaned := filepath.Clean(path)
-	normalized := filepath.ToSlash(cleaned)
-	if filepath.VolumeName(cleaned) != "" {
-		return strings.ToLower(normalized)
-	}
-	return normalized
+	return pathutil.CanonicalPathKey(path)
 }
 
 func isPathWithin(base string, target string) bool {

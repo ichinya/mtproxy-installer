@@ -13,6 +13,7 @@ import (
 	"mtproxy-installer/app/internal/docker"
 	execadapter "mtproxy-installer/app/internal/exec"
 	"mtproxy-installer/app/internal/output"
+	"mtproxy-installer/app/internal/pathutil"
 	"mtproxy-installer/app/internal/provider/telemt"
 	"mtproxy-installer/app/internal/runtime"
 	"mtproxy-installer/app/internal/telemtapi"
@@ -363,7 +364,7 @@ func resolveFallbackInstallDir() string {
 	if candidate == "" {
 		return runtime.DefaultInstallDir
 	}
-	return filepath.Clean(candidate)
+	return pathutil.CleanPath(candidate)
 }
 
 func fallbackTelemtControlEndpoint(runtimeState *runtime.RuntimeInstallation) string {
@@ -465,15 +466,7 @@ func resolveHardenedFallbackEnvPath(installDir string) (string, string, bool, er
 }
 
 func resolveAbsolutePathForFallback(path string) (string, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
-		return "", errors.New("path is required")
-	}
-	absolute, err := filepath.Abs(trimmed)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Clean(absolute), nil
+	return pathutil.ResolvePath(path)
 }
 
 func validatePathChainNoSymlinksForFallback(path string) error {

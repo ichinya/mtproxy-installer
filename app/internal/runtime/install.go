@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"mtproxy-installer/app/internal/pathutil"
 )
 
 const (
@@ -158,13 +160,17 @@ func resolveInstallDir(options LoadOptions, logger *slog.Logger) string {
 }
 
 func normalizeInstallDir(path string, logger *slog.Logger) string {
-	clean := filepath.Clean(path)
+	clean := pathutil.CleanPath(path)
+	if pathutil.IsPOSIXRootedPath(clean) {
+		logger.Debug("install-dir normalized", "install_dir", clean, "mode", "posix-rooted")
+		return clean
+	}
 	if filepath.IsAbs(clean) {
 		logger.Debug("install-dir normalized", "install_dir", clean, "mode", "absolute")
 		return clean
 	}
 
-	abs, err := filepath.Abs(clean)
+	abs, err := pathutil.ResolvePath(clean)
 	if err != nil {
 		logger.Debug("install-dir absolute normalization failed", "candidate", clean, "error", err.Error())
 		return clean
@@ -514,15 +520,7 @@ func hardenRuntimeLoadFilePath(installDir string, path string, label string) (st
 }
 
 func resolveAbsoluteRuntimeLoadPath(path string) (string, error) {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
-		return "", errors.New("path is required")
-	}
-	absolute, err := filepath.Abs(trimmed)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Clean(absolute), nil
+	return pathutil.ResolvePath(path)
 }
 
 func validatePathChainNoSymlinksForRuntime(path string) error {
