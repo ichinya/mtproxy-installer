@@ -30,6 +30,13 @@ sudo ./mtproxy install --provider telemt
 - запускает compose runtime
 - для `telemt` пытается получить startup `tg://proxy`
 
+Перед запуском lifecycle команда делает preflight:
+
+- проверяет, что запуск идёт в Linux/WSL-контексте
+- проверяет root privileges
+- проверяет `docker`, `docker compose` и доступность daemon
+- при провале сразу печатает ошибку с remediation hint
+
 ## Переопределение значений
 
 Примеры:

@@ -49,34 +49,28 @@ func (m *Manager) installGoNative(
 	transcript := newLifecycleTranscript()
 	resultArgs := []string{"install", provider, strconv.Itoa(options.Port)}
 
-	if err := requirePrivilegedLifecycleExecution("install"); err != nil {
-		transcript.stderrLine("Error: " + err.Error())
-		result := transcript.result(resultArgs, 1)
-		return result, lifecycleCommandError(result, err)
-	}
-
-	dockerPath, err := m.resolveDockerPath()
+	dockerPath, err := m.runLifecyclePreflight(ctx, "install", installDir, envOverrides)
 	if err != nil {
-		transcript.stderrLine("Error: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}
 
 	cfg, err := m.resolveInstallNativeConfig(ctx, dockerPath, options, provider, installDir, envOverrides)
 	if err != nil {
-		transcript.stderrLine("Error: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}
 
 	if err := m.prepareInstallLayout(cfg); err != nil {
-		transcript.stderrLine("Error: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}
 
 	if err := m.writeInstallContractFiles(cfg); err != nil {
-		transcript.stderrLine("Error: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}
@@ -106,7 +100,7 @@ func (m *Manager) installGoNative(
 		}
 	}
 	if err != nil {
-		transcript.stderrLine("Error: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}
@@ -116,7 +110,7 @@ func (m *Manager) installGoNative(
 		Logger:     m.logger,
 	})
 	if err != nil {
-		transcript.stderrLine("Error: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}
@@ -181,7 +175,13 @@ func (m *Manager) resolveInstallNativeConfig(
 	if cfg.publicIP == "" {
 		publicIP, err := resolvePublicIP(ctx)
 		if err != nil {
-			return installNativeConfig{}, err
+			return installNativeConfig{}, newLifecyclePreflightError(
+				"install",
+				"public_ip",
+				"automatic public IP detection failed",
+				"pass --public-ip explicitly if the host has restricted outbound access",
+				err,
+			)
 		}
 		cfg.publicIP = publicIP
 	}

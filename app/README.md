@@ -2,6 +2,7 @@
 
 `app/` содержит Go CLI `mtproxy` и теперь является основным lifecycle entrypoint для `install`, `update` и `uninstall`.
 Shell-скрипты в корне репозитория можно считать legacy compatibility path, но CLI больше не вызывает их во время runtime-команд.
+Перед destructive/runtime lifecycle-командами CLI выполняет preflight: проверяет OS, root privileges, наличие `docker`, `docker compose` и доступность Docker daemon, а при ошибке возвращает actionable hint.
 
 ## Scope и ограничения
 

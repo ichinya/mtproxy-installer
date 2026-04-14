@@ -259,6 +259,10 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 }
 
 func (m *Manager) Install(ctx context.Context, options InstallOptions) (execadapter.Result, error) {
+	if err := ensureLifecycleHostOS("install"); err != nil {
+		return execadapter.Result{}, err
+	}
+
 	provider, err := normalizeProvider(options.Provider)
 	if err != nil {
 		return execadapter.Result{}, err

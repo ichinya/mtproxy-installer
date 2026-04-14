@@ -81,6 +81,10 @@ func ResolveUninstallProviderContract(runtimeProvider runtime.Provider, provider
 }
 
 func (m *Manager) Uninstall(ctx context.Context, options UninstallOptions) (execadapter.Result, error) {
+	if err := ensureLifecycleHostOS("uninstall"); err != nil {
+		return execadapter.Result{}, err
+	}
+
 	strategyMode := UninstallStrategyTelemtOnly
 	installDir := installDirForLog(options.InstallDir)
 	providerHint := strings.TrimSpace(string(options.DetectedProvider))

@@ -38,6 +38,10 @@ type UpdateLifecycleSummary struct {
 }
 
 func (m *Manager) Update(ctx context.Context, options UpdateOptions) (execadapter.Result, error) {
+	if err := ensureLifecycleHostOS("update"); err != nil {
+		return execadapter.Result{}, err
+	}
+
 	runtimeState, preflightErr := m.preflightRuntimeInstallDir(options.InstallDir)
 	if preflightErr != nil {
 		return execadapter.Result{}, preflightErr

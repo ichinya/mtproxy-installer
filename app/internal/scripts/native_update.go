@@ -26,15 +26,9 @@ func (m *Manager) updateGoNative(
 	transcript := newLifecycleTranscript()
 	resultArgs := []string{"update", string(runtimeState.Provider.Name)}
 
-	if err := requirePrivilegedLifecycleExecution("update"); err != nil {
-		transcript.stderrLine("Error: " + err.Error())
-		result := transcript.result(resultArgs, 1)
-		return result, lifecycleCommandError(result, err)
-	}
-
-	dockerPath, err := m.resolveDockerPath()
+	dockerPath, err := m.runLifecyclePreflight(ctx, "update", runtimeState.Paths.InstallDir, envOverrides)
 	if err != nil {
-		transcript.stderrLine("Error: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}
@@ -57,12 +51,12 @@ func (m *Manager) updateGoNative(
 	transcript.stdoutLine("")
 
 	if err := upsertEnvFileValue(runtimeState.Paths.EnvFile, "PROVIDER", string(runtimeState.Provider.Name)); err != nil {
-		transcript.stderrLine("Error: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}
 	if err := upsertEnvFileValue(runtimeState.Paths.EnvFile, contract.sourceKey, sourceRef); err != nil {
-		transcript.stderrLine("Error: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}
@@ -79,7 +73,7 @@ func (m *Manager) updateGoNative(
 
 	targetImage, err := m.resolveImageReference(ctx, dockerPath, sourceRef, envOverrides)
 	if err != nil {
-		transcript.stderrLine("Error: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}
@@ -91,7 +85,7 @@ func (m *Manager) updateGoNative(
 			installDir:  runtimeState.Paths.InstallDir,
 		}
 		if _, err := m.validateMTGConfig(ctx, dockerPath, cfg, envOverrides); err != nil {
-			transcript.stderrLine("Error: " + err.Error())
+			writeLifecycleFailure(transcript, err)
 			result := transcript.result(resultArgs, 1)
 			return result, lifecycleCommandError(result, err)
 		}
@@ -109,7 +103,7 @@ func (m *Manager) updateGoNative(
 	}
 
 	if err := upsertEnvFileValue(runtimeState.Paths.EnvFile, contract.imageKey, targetImage); err != nil {
-		transcript.stderrLine("Error: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}

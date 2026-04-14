@@ -9,6 +9,7 @@
 
 Основной lifecycle install/update/uninstall теперь выполняется через Go CLI `app/cmd/mtproxy`.
 Root `install.sh`, `update.sh` и `uninstall.sh` остаются legacy compatibility assets, но CLI больше не зависит от них.
+Перед `install`, `update` и `uninstall` CLI делает preflight: OS, root privileges, `docker`, `docker compose` и доступность daemon. При провале команда возвращает remediation hint.
 
 ## Быстрый старт
 

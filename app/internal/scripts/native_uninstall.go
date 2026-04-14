@@ -20,15 +20,9 @@ func (m *Manager) uninstallGoNative(
 	transcript := newLifecycleTranscript()
 	resultArgs := []string{"uninstall", string(resolvedProvider)}
 
-	if err := requirePrivilegedLifecycleExecution("uninstall"); err != nil {
-		transcript.stderrLine("Error: " + err.Error())
-		result := transcript.result(resultArgs, 1)
-		return result, lifecycleCommandError(result, err)
-	}
-
-	dockerPath, err := m.resolveDockerPath()
+	dockerPath, err := m.runLifecyclePreflight(ctx, "uninstall", runtimeState.Paths.InstallDir, envOverrides)
 	if err != nil {
-		transcript.stderrLine("Error: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}
@@ -47,7 +41,7 @@ func (m *Manager) uninstallGoNative(
 		transcript.stdoutLine("Data removed: false")
 		transcript.stdoutLine("Image cleanup: skipped")
 		transcript.stdoutLine(fmt.Sprintf("Outcome: %s", err.Error()))
-		transcript.stderrLine("ERROR: " + err.Error())
+		writeLifecycleFailure(transcript, err)
 		result := transcript.result(resultArgs, 1)
 		return result, lifecycleCommandError(result, err)
 	}
@@ -126,23 +120,47 @@ func (m *Manager) validateUninstallRuntimeTrust(
 	}
 	for _, path := range requiredPaths {
 		if err := ensurePathOwnershipTrusted(path); err != nil {
-			return err
+			return newLifecyclePreflightError(
+				"uninstall",
+				"ownership",
+				fmt.Sprintf("untrusted owner detected for %s", path),
+				"restore root ownership for runtime files before retrying, for example: sudo chown root:root <path>",
+				err,
+			)
 		}
 		if err := ensurePathPermissionsTrusted(path); err != nil {
-			return err
+			return newLifecyclePreflightError(
+				"uninstall",
+				"permissions",
+				fmt.Sprintf("unsafe permissions detected for %s", path),
+				"remove group/other write bits before retrying, for example: sudo chmod go-w <path>",
+				err,
+			)
 		}
 	}
 
 	marker, ok := runtimeComposeMarkers[provider]
 	if !ok {
-		return fmt.Errorf("missing compose marker contract for provider %q", provider)
+		return newLifecyclePreflightError(
+			"uninstall",
+			"provider_contract",
+			fmt.Sprintf("missing compose marker contract for provider %q", provider),
+			"restore the expected runtime contract for the detected provider before retrying uninstall",
+			nil,
+		)
 	}
 	composeBody, err := os.ReadFile(runtimeState.Paths.ComposeFile)
 	if err != nil {
 		return err
 	}
 	if !strings.Contains(strings.ToLower(string(composeBody)), strings.ToLower(marker)) {
-		return fmt.Errorf("compose provider marker mismatch: expected %q for provider %q", marker, provider)
+		return newLifecyclePreflightError(
+			"uninstall",
+			"provider_contract",
+			fmt.Sprintf("compose provider marker mismatch: expected %q for provider %q", marker, provider),
+			"restore the matching compose/provider contract before retrying uninstall",
+			nil,
+		)
 	}
 	return nil
 }
