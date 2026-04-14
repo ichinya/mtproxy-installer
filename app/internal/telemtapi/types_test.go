@@ -174,6 +174,37 @@ func TestUsersEnvelopeSelectStartupLinkVariants(t *testing.T) {
 			wantUsable:     true,
 		},
 		{
+			name: "wrapper data array with nested links tls remains supported",
+			payload: `{
+				"ok": true,
+				"data": [{
+					"username": "main",
+					"in_runtime": true,
+					"user_ad_tag": null,
+					"max_tcp_conns": null,
+					"expiration_rfc3339": null,
+					"data_quota_bytes": null,
+					"max_unique_ips": null,
+					"current_connections": 0,
+					"active_unique_ips": 0,
+					"active_unique_ips_list": [],
+					"recent_unique_ips": 0,
+					"recent_unique_ips_list": [],
+					"total_octets": 0,
+					"links": {
+						"classic": [],
+						"secure": [],
+						"tls": ["` + usableLink + `"]
+					}
+				}],
+				"revision": "test-revision"
+			}`,
+			wantClass:      UsersParseClassUsableLink,
+			wantUsers:      1,
+			wantCandidates: 1,
+			wantUsable:     true,
+		},
+		{
 			name:       "wrapper with ok false is incomplete payload shape",
 			payload:    `{"ok":false,"users":{"main":{"tls":["` + usableLink + `"]}}}`,
 			wantClass:  UsersParseClassIncompleteStructure,

@@ -76,6 +76,23 @@ func TestAPIResolveStartupLinkScenarios(t *testing.T) {
 			wantClass: telemtapi.UsersParseClassUsableLink,
 		},
 		{
+			name: "wrapper data array with nested links tls is accepted by bridge",
+			body: `{
+				"ok": true,
+				"data": [{
+					"username": "main",
+					"in_runtime": true,
+					"links": {
+						"classic": [],
+						"secure": [],
+						"tls": ["` + usableLink + `"]
+					}
+				}],
+				"revision": "test-revision"
+			}`,
+			wantClass: telemtapi.UsersParseClassUsableLink,
+		},
+		{
 			name:       "wrapper with ok false is degraded",
 			body:       `{"ok":false,"users":{"main":{"tls":["` + usableLink + `"]}}}`,
 			wantClass:  telemtapi.UsersParseClassIncompleteStructure,

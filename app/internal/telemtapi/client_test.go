@@ -44,6 +44,23 @@ func TestClientGetUsersScenarios(t *testing.T) {
 			wantClass: UsersParseClassUsableLink,
 		},
 		{
+			name: "wrapper data array with nested links tls is parsed",
+			body: `{
+				"ok": true,
+				"data": [{
+					"username": "main",
+					"in_runtime": true,
+					"links": {
+						"classic": [],
+						"secure": [],
+						"tls": ["` + usableLink + `"]
+					}
+				}],
+				"revision": "test-revision"
+			}`,
+			wantClass: UsersParseClassUsableLink,
+		},
+		{
 			name:       "ok false response is classified as incomplete payload shape",
 			body:       `{"ok":false,"users":{"main":{"tls":["` + usableLink + `"]}}}`,
 			wantClass:  UsersParseClassIncompleteStructure,

@@ -382,6 +382,13 @@ func parseUsersCollection(raw json.RawMessage) ([]UserProjection, bool) {
 		if err := json.Unmarshal(raw, &rawObject); err != nil {
 			return nil, false
 		}
+		if looksLikeSupportedUserObject(rawObject) {
+			user, ok := parseUserProjection(raw, "")
+			if !ok {
+				return nil, false
+			}
+			return []UserProjection{user}, true
+		}
 		return parseUsersMapCollection(rawObject)
 	}
 
@@ -464,22 +471,35 @@ func looksLikeEnvelopeUsersCollection(raw json.RawMessage) bool {
 }
 
 func looksLikeEnvelopeDataCollection(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return false
+	}
+	if strings.HasPrefix(trimmed, "[") {
+		return true
+	}
+
 	dataObject, ok := parseJSONObject(raw)
 	if !ok {
 		return false
 	}
 
 	usersCollection, found := dataObject["users"]
-	if !found {
-		return false
+	if found {
+		return looksLikeEnvelopeUsersCollection(usersCollection)
 	}
 
-	return looksLikeEnvelopeUsersCollection(usersCollection)
+	return false
 }
 
 func extractUsersCollectionFromEnvelope(usersRaw json.RawMessage, dataRaw json.RawMessage) (json.RawMessage, bool) {
 	if len(usersRaw) > 0 {
 		return usersRaw, true
+	}
+
+	trimmed := strings.TrimSpace(string(dataRaw))
+	if strings.HasPrefix(trimmed, "[") {
+		return dataRaw, true
 	}
 
 	dataObject, ok := parseJSONObject(dataRaw)
@@ -488,11 +508,15 @@ func extractUsersCollectionFromEnvelope(usersRaw json.RawMessage, dataRaw json.R
 	}
 
 	usersFromData, found := dataObject["users"]
-	if !found {
-		return nil, false
+	if found {
+		return usersFromData, true
 	}
 
-	return usersFromData, true
+	if looksLikeSupportedUserObject(dataObject) {
+		return dataRaw, true
+	}
+
+	return nil, false
 }
 
 func parseUserProjection(raw json.RawMessage, fallbackName string) (UserProjection, bool) {
@@ -504,7 +528,12 @@ func parseUserProjection(raw json.RawMessage, fallbackName string) (UserProjecti
 		return UserProjection{}, false
 	}
 
-	tlsLinks, ok := parseTLSLinks(userObject["tls"])
+	tlsRaw, ok := extractUserTLSLinks(userObject)
+	if !ok {
+		return UserProjection{}, false
+	}
+
+	tlsLinks, ok := parseTLSLinks(tlsRaw)
 	if !ok {
 		return UserProjection{}, false
 	}
@@ -524,6 +553,9 @@ func looksLikeSupportedUserObject(userObject map[string]json.RawMessage) bool {
 	if _, ok := userObject["tls"]; ok {
 		return true
 	}
+	if _, ok := userObject["links"]; ok {
+		return true
+	}
 	if _, ok := userObject["username"]; ok {
 		return true
 	}
@@ -534,6 +566,29 @@ func looksLikeSupportedUserObject(userObject map[string]json.RawMessage) bool {
 		return true
 	}
 	return false
+}
+
+func extractUserTLSLinks(userObject map[string]json.RawMessage) (json.RawMessage, bool) {
+	if rawTLS, ok := userObject["tls"]; ok {
+		return rawTLS, true
+	}
+
+	rawLinks, ok := userObject["links"]
+	if !ok || len(rawLinks) == 0 {
+		return nil, true
+	}
+
+	linksObject, ok := parseJSONObject(rawLinks)
+	if !ok {
+		return nil, false
+	}
+
+	rawTLS, ok := linksObject["tls"]
+	if !ok {
+		return nil, true
+	}
+
+	return rawTLS, true
 }
 
 func parseUserName(userObject map[string]json.RawMessage, fallbackName string) (string, bool) {
